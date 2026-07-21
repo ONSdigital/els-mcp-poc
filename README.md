@@ -75,4 +75,9 @@ This app has the configuration files necessary to deploy it to Vercel. This is n
 
 ### Use it with your LLM
 
-Follow the instructions in [the relevant section above](#connect-it-to-your-llm) to connect the MCP server to your local chatbot. You'll just need to change the URL to `https://<your-app>.vercel.app`
+Once set up on Vercel, you can add the MCP server to your local LLM chatbot. If you're using Claude Desktop, the steps are as follows:
+
+1. Go to **Settings (Customize) → Connectors**
+2. Click +, then **Add custom connector**
+3. Paste in the URL: `https://<your-app>.vercel.app/mcp`
+4. Click **Add**, then **Connect**
