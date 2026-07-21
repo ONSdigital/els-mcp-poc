@@ -63,7 +63,7 @@ Which local authority in Wales has the highest employment rate?
 
 ## Deploy to Vercel
 
-This app has the configuration files necessary to deploy it to Vercel. This is not intended to be a solution for use in production, but allows the MCP server to be tested on web-based chatbots, avoiding the need to run it locally or install an LLM desktop app.
+This app has the configuration files necessary to deploy it to Vercel. This is not intended to be a solution for use in production, but allows the MCP server to be tested by other people without having to run it locally on their machine.
 
 ### Deployment steps
 
@@ -73,16 +73,6 @@ This app has the configuration files necessary to deploy it to Vercel. This is n
 4. Vercel will auto-detect Python and install from requirements.txt.
 5. Deploy.
 
-### Using with a web-based chatbot
+### Use it with your LLM
 
-To use the Vercel-hosted MCP server with your favourite web-based LLM chatbot, just ask the chatbot to connect to the MCP server, eg:
-
-```txt
-Connect to the MCP server https://<your-app>.vercel.app
-```
-
-If the server is running correctly, the chatbot should confirm that it is connected. You can then ask it a question like:
-
-```txt
-Which local authority in the North West of England has the best broadband connectivity?
-```
+Follow the instructions in [the relevant section above](#connect-it-to-your-llm) to connect the MCP server to your local chatbot. You'll just need to change the URL to `https://<your-app>.vercel.app`
