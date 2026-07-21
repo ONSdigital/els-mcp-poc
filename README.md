@@ -67,11 +67,10 @@ This app has the configuration files necessary to deploy it to Vercel. This is n
 
 ### Deployment steps
 
-1. Fork this repo to your own Github account.
-2. In Vercel, create a new project from that repo.
-3. Set the Root Directory to the project folder if needed.
-4. Vercel will auto-detect Python and install from requirements.txt.
-5. Deploy.
+1. [Fork this repo](https://github.com/bothness/els-mcp-poc/fork) to your own Github account.
+2. In **Vercel**, create a new project from that repo.
+3. Vercel will auto-detect Python and install from requirements.txt.
+4. Deploy the app.
 
 ### Use it with your LLM
 
