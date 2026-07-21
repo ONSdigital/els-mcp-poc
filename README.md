@@ -1,8 +1,10 @@
 # ELS MCP server
 
-This is a proof-of-concept Model Context Protocol (MCP) server that allows LLM agents (eg. chatbots like Claude, ChatGPT, Gemini or Copilot) to make meaningful use of the data provided by the [Explore Local Statistics API](https://github.com/ONSdigital/explore-local-statistics-app/wiki).
+This is a proof-of-concept Model Context Protocol (MCP) server that allows LLM agents (eg. chatbots like Claude or ChatGPT) to make meaningful use of the data provided by the [Explore Local Statistics API](https://github.com/ONSdigital/explore-local-statistics-app/wiki).
 
 This code in this repo was created with the use of LLMs (Genie Code and Github Copilot). It is not intended for production use.
+
+_Note: It is not possible to add custom MCP servers to some LLM chatbots, like M365 Copilot._
 
 ## Run the server locally
 
@@ -74,9 +76,11 @@ This app has the configuration files necessary to deploy it to Vercel. This is n
 
 ### Use it with your LLM
 
-Once set up on Vercel, you can add the MCP server to your local LLM chatbot. If you're using Claude Desktop, the steps are as follows:
+Once set up on Vercel, you can add the MCP server to your favourite LLM chatbot. If you're using Claude (on web or desktop), the steps are as follows:
 
 1. Go to **Settings (Customize) → Connectors**
 2. Click +, then **Add custom connector**
 3. Paste in the URL: `https://<your-app>.vercel.app/mcp`
 4. Click **Add**, then **Connect**
+
+Once you've done this, you can start asking questions in chat.
