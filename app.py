@@ -59,46 +59,58 @@ def _all_indicators() -> tuple:
     return tuple(_get("/metadata/indicators"))
 
 
+@lru_cache(maxsize=1)
+def _geo_levels() -> tuple:
+    """Cache the geography level catalogue (ctry, rgn, cauth, utla, ltla, ...).
+    These are fixed area-type definitions and won't change during a server's
+    runtime."""
+    return tuple(_get("/geo/levels", includeAreas="false"))
+
+
 # --------------------------------------------------------------------------
 # Geography tools
 # --------------------------------------------------------------------------
 
 @mcp.tool()
-def search_areas(query: str, geo_level: Optional[str] = DEFAULT_PLACE_LEVELS, limit: int = 10) -> list[dict]:
+def search_areas(query: str, geo_levels: Optional[str] = DEFAULT_PLACE_LEVELS, limit: int = 10) -> list[dict]:
     """Look up UK geographic areas (countries, regions, local authorities, etc.) by name.
 
     Use this to convert a place name (e.g. "Birmingham", "Northern Ireland") into the
-    GSS area code(s) needed by get_indicator_data. Returns candidate matches with
+    GSS area code(s) needed by query_data. Returns candidate matches with
     their area code (areacd), name (areanm) and area type (type).
 
     Args:
         query: Place name or partial name to search for (e.g. "Norwich").
-        geo_level: Comma-separated geography level(s) to restrict results to
-            (e.g. "ltla", "rgn", "ctry"). Defaults to common administrative
-            levels (local authority up to country). Pass None/"all" to search
-            every level, including parliamentary constituencies etc.
+        geo_levels: Comma-separated list of geography level(s) to restrict
+            results to (e.g. "ltla,rgn,ctry"). Defaults to common
+            administrative levels (local authority up to country). Pass
+            None/"all" to search every level, including parliamentary
+            constituencies etc. Note: this takes a LIST of levels to filter
+            by, unlike the single geo_type used in query_data/
+            rank_areas_by_indicator/get_related_areas, which names one area
+            type to fetch every area of.
         limit: Maximum number of results to return (default 10).
     """
-    level = None if geo_level in (None, "all") else geo_level
+    level = None if geo_levels in (None, "all") else geo_levels
     return _get(f"/geo/search/{query}", geoLevel=level, limit=limit).get("data", [])
 
 
 @mcp.tool()
-def resolve_area(query: str, geo_level: Optional[str] = DEFAULT_PLACE_LEVELS) -> dict:
+def resolve_area(query: str, geo_levels: Optional[str] = DEFAULT_PLACE_LEVELS) -> dict:
     """Resolve a place name to its single best-matching area, with alternates.
 
     Prefers an exact (case-insensitive) name match; otherwise returns the top
     search result. Use this instead of search_areas when you just need one
-    area code for a place, e.g. before calling get_indicator_data.
+    area code for a place, e.g. before calling query_data.
 
     Args:
         query: Place name to resolve (e.g. "Belfast").
-        geo_level: See search_areas. Falls back to an unrestricted search if
+        geo_levels: See search_areas. Falls back to an unrestricted search if
             no results are found at the requested level(s).
     """
-    results = search_areas(query, geo_level=geo_level)
+    results = search_areas(query, geo_levels=geo_levels)
     if not results:
-        results = search_areas(query, geo_level=None)
+        results = search_areas(query, geo_levels=None)
     if not results:
         return {"match": None, "alternatives": []}
     exact = [r for r in results if r["areanm"].lower() == query.lower()]
@@ -123,7 +135,7 @@ def get_area_details(area_code: str) -> dict:
 
 
 @mcp.tool()
-def get_related_areas(area_code: str, relation: str = "parents", geo_level: Optional[str] = None) -> list[dict]:
+def get_related_areas(area_code: str, relation: str = "parents", geo_type: Optional[str] = None) -> list[dict]:
     """Find areas related to a given area: its parents, children, siblings, or
     statistically similar areas. Useful for building comparisons, e.g. finding
     the region/country a local authority sits within.
@@ -131,18 +143,34 @@ def get_related_areas(area_code: str, relation: str = "parents", geo_level: Opti
     Args:
         area_code: GSS code of the area to find relations for.
         relation: One of "parents", "children", "siblings", "similar".
-        geo_level: For "children", optionally request a lower-level grouping
-            (e.g. "ltla"). For "siblings", optionally request siblings within a
-            wider parent level via the same parameter.
+        geo_type: A single area-type code (e.g. "ltla" - see list_geo_levels).
+            For "children", optionally request a lower-level grouping. For
+            "siblings", optionally request siblings within a wider parent
+            level via the same parameter.
     """
     if relation not in ("parents", "children", "siblings", "similar"):
         raise ValueError("relation must be one of: parents, children, siblings, similar")
     params = {}
-    if relation == "children" and geo_level:
-        params["geoLevel"] = geo_level
-    if relation == "siblings" and geo_level:
-        params["parentLevel"] = geo_level
+    if relation == "children" and geo_type:
+        params["geoLevel"] = geo_type
+    if relation == "siblings" and geo_type:
+        params["parentLevel"] = geo_type
     return _get(f"/geo/related/{area_code}/{relation}", **params)
+
+
+@mcp.tool()
+def list_geo_levels() -> list[dict]:
+    """List the available geography level codes. Used as the single geo_type
+    in query_data, rank_areas_by_indicator, and get_related_areas (one area
+    type to fetch/group every area of), or as one entry within the
+    comma-separated geo_levels filter in search_areas/resolve_area. Codes
+    include: "ltla" (lower-tier/unitary authorities), "utla" (upper-tier/
+    unitary authorities), "cauth" (combined authorities), "rgn" (English
+    regions plus Wales/Scotland/Northern Ireland), "ctry" (countries, UK,
+    Great Britain). Each entry gives the level's code and a human-readable
+    description of what it covers.
+    """
+    return list(_geo_levels())
 
 
 # --------------------------------------------------------------------------
@@ -208,14 +236,53 @@ def list_topics() -> Any:
 # Data retrieval tools
 # --------------------------------------------------------------------------
 
+def _check_bulk_guard(indicator_slug: Optional[str], topic: Optional[str],
+                       area_codes: Optional[list[str]], geo_type: Optional[str],
+                       geo_extent: Optional[str], time: str) -> None:
+    """Enforce the API's "at most one of {datasets, geography, time} may be
+    unrestricted" rule. A topic filter or a geo_extent-bounded geo_type counts
+    as bounding that dimension; explicit area_codes always bound geography
+    regardless of geo_type/geo_extent."""
+    datasets_unbounded = (indicator_slug in (None, "all")) and not topic
+    geo_unbounded = (not area_codes) and (not geo_type or not geo_extent)
+    time_unbounded = (time == "all")
+
+    if sum([datasets_unbounded, geo_unbounded, time_unbounded]) >= 2:
+        raise ValueError(
+            "Too broad: at most one of indicator/topic, geography, or time can "
+            "be unrestricted at once. Narrow with a topic, a geo_type + "
+            "geo_extent (or specific area_codes), or a specific time period."
+        )
+
+
 @mcp.tool()
-def get_indicator_data(indicator_slug: str, area_codes: list[str], time: str = "latest") -> list[dict]:
-    """Fetch observation values for an indicator across one or more areas.
+def query_data(
+    indicator_slug: Optional[str] = None,
+    topic: Optional[str] = None,
+    area_codes: Optional[list[str]] = None,
+    geo_type: Optional[str] = None,
+    geo_extent: Optional[str] = None,
+    time: str = "latest",
+) -> list[dict]:
+    """Fetch observation values for one or many indicators across one or many
+    areas - the general-purpose data tool. Covers everything from a single
+    indicator/single area lookup to bulk pulls (e.g. every indicator in a
+    topic, for every local authority in a region, at the latest period).
 
     Args:
-        indicator_slug: Indicator slug, e.g. "population-count" (from search_indicators).
-        area_codes: One or more GSS area codes to fetch values for, e.g.
-            ["E08000025"] or ["N09000003", "N92000002"] (from resolve_area/search_areas).
+        indicator_slug: Indicator slug, e.g. "population-count" (from
+            search_indicators). Omit or pass "all" to fetch every indicator
+            (optionally narrowed by topic).
+        topic: Topic or sub-topic slug (from list_topics) to filter which
+            indicators are returned when indicator_slug is omitted/"all".
+        area_codes: Specific GSS area codes to fetch, e.g. ["E08000025"].
+            Not filtered by geo_extent - always returned as named.
+        geo_type: A single area-type code (e.g. "ltla" - see
+            list_geo_levels) to fetch every area of that type. Combines with
+            area_codes in the same request.
+        geo_extent: Optional parent area GSS code that bounds geo_type to
+            areas within it (e.g. all "ltla" within a region). Has no effect
+            on area_codes.
         time: "latest" (default), "earliest", "all", a year "YYYY", or a
             range "YYYY,YYYY".
 
@@ -224,16 +291,66 @@ def get_indicator_data(indicator_slug: str, area_codes: list[str], time: str = "
     commonly happens when an area's country isn't covered by that indicator
     (check get_indicator_metadata's geography.countries, or use
     compare_indicator which surfaces this automatically with alternatives).
+
+    Raises ValueError if the request is too broad: at most one of
+    {indicator/topic, geography, time} may be left unrestricted ("all") at
+    the same time - the underlying API cannot serve fully unbounded queries
+    on more than one dimension.
     """
-    geo = ",".join(area_codes)
+    _check_bulk_guard(indicator_slug, topic, area_codes, geo_type, geo_extent, time)
+
+    geo_parts = list(area_codes or [])
+    if geo_type:
+        geo_parts.append(geo_type)
+    geo = ",".join(geo_parts) if geo_parts else "all"
+
     return _get(
         "/data.rows.json",
-        indicator=indicator_slug,
+        indicator=indicator_slug or "all",
+        topic=topic,
         geo=geo,
+        geoExtent=geo_extent,
         includeNames="true",
         time=time,
         timeNearest="any",
     )
+
+
+@mcp.tool()
+def rank_areas_by_indicator(
+    indicator_slug: str,
+    geo_type: str,
+    geo_extent: Optional[str] = None,
+    time: str = "latest",
+    top_n: int = 10,
+    order: str = "desc",
+) -> list[dict]:
+    """Rank areas by an indicator's value, e.g. "which local authority has the
+    highest broadband coverage?" or "top 10 areas by unemployment rate in the
+    South East". Fetches the indicator for every area of the given geo_type
+    (optionally bounded to a parent area via geo_extent) and returns the
+    top/bottom N sorted by value.
+
+    Args:
+        indicator_slug: Indicator slug (from search_indicators).
+        geo_type: Area-type code to rank across, e.g. "ltla" (see
+            list_geo_levels for valid codes).
+        geo_extent: Optional parent area GSS code to bound the ranking to
+            (e.g. only LTLAs within a specific region).
+        time: "latest" (default) or a specific year "YYYY". "all" is not
+            supported here since ranking needs one comparable value per area.
+        top_n: Number of areas to return (default 10).
+        order: "desc" (highest first, default) or "asc" (lowest first).
+    """
+    if time == "all":
+        raise ValueError("time='all' is not supported for ranking; use 'latest' or a specific year.")
+    if order not in ("asc", "desc"):
+        raise ValueError("order must be 'asc' or 'desc'")
+
+    rows = query_data(indicator_slug, geo_type=geo_type, geo_extent=geo_extent, time=time)
+    valid = [r for r in rows if r.get("value") is not None]
+    valid.sort(key=lambda r: r["value"], reverse=(order == "desc"))
+    return valid[:top_n]
 
 
 @mcp.tool()
@@ -253,6 +370,14 @@ def compare_indicator(
     and how does it compare to Northern Ireland as a whole?" - pass
     indicator_query="unemployment", area_query="Belfast",
     compare_to_query="Northern Ireland".
+
+    IMPORTANT SCOPE: this compares exactly the ONE OR TWO specific named
+    areas resolved from area_query/compare_to_query - e.g.
+    compare_to_query="South East" resolves to the single South East region
+    as one aggregate figure, NOT every local authority within it. For
+    "compare Fareham to every area in the South East" or similar region-wide/
+    many-area comparisons, use query_data with geo_type + geo_extent (or
+    rank_areas_by_indicator to rank them) instead.
 
     Args:
         indicator_query: Free-text indicator topic, e.g. "population", "unemployment rate".
@@ -297,7 +422,7 @@ def compare_indicator(
             ]
             alt_suggestions.extend(alts[:5])
 
-    data = get_indicator_data(indicator["slug"], codes, time=time) if len(warnings) < len(areas) else []
+    data = query_data(indicator["slug"], area_codes=codes, time=time) if len(warnings) < len(areas) else []
 
     return {
         "indicator": {
@@ -324,7 +449,7 @@ def health() -> dict:
         api_reachable = True
     except Exception as exc:  # noqa: BLE001
         api_reachable = False
-    return {"status": "ok", "els_api_reachable": api_reachable, "tool_count": 9}
+    return {"status": "ok", "els_api_reachable": api_reachable, "tool_count": 11}
 
 
 if __name__ == "__main__":
