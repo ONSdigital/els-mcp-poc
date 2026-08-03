@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "els-mcp-server": {
+      "type": "http",
+      "url": "https://els-mcp-poc.vercel.app/mcp"
+    },
+    "els-mcp-test": {
+      "type": "http",
+      "url": "http://localhost:8001/mcp"
+    }
+  }
+}
