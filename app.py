@@ -449,7 +449,7 @@ def health() -> dict:
         api_reachable = True
     except Exception as exc:  # noqa: BLE001
         api_reachable = False
-    return {"status": "ok", "els_api_reachable": api_reachable, "tool_count": 11}
+    return {"status": "ok", "els_api_reachable": api_reachable, "tool_count": 12}
 
 
 if __name__ == "__main__":
