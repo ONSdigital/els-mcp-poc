@@ -1,5 +1,7 @@
 """
-Databricks App entrypoint: MCP server for the ONS "Explore Local Statistics" (ELS) API.
+MCP server for the ONS "Explore Local Statistics" (ELS) API.
+
+(Vibe coded with Databricks Genie Code and Claude.)
 
 Exposes tools that let an AI model answer questions like:
   - "What is the population of Birmingham?"
@@ -14,11 +16,8 @@ by non-ONS web applications" and its structure may change without notice.
 It is a public Cloudflare-cached endpoint with no auth, so it can be called
 server-side, but this integration is unofficial and best-effort.
 
-This is the Databricks Apps variant of els_mcp_server.py: it runs the same
-FastMCP tools over Streamable HTTP transport (instead of stdio) so it is
-reachable at https://<app-url>/mcp once deployed. Databricks Apps provides
-the port to bind via the DATABRICKS_APP_PORT env var and expects the process
-to listen on 0.0.0.0.
+This mcp runs FastMCP tools over Streamable HTTP transport. It is
+reachable at https://<app-url>/mcp once deployed.
 """
 
 import os
