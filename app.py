@@ -269,16 +269,24 @@ def query_data(
     indicator/single area lookup to bulk pulls (e.g. every indicator in a
     topic, for every local authority in a region, at the latest period).
 
+    CHOOSING area_codes vs geo_type/geo_extent:
+    - For a specific area or list of specific areas (e.g. "Fareham", or
+      "Fareham and Gosport"), use area_codes=["E07000087"]. This is also the
+      correct choice for a SINGLE area even if you only have one code.
+    - For every area of a given type (e.g. "every ltla in the South East"),
+      use geo_type + geo_extent together: geo_type names the level to
+      fetch, geo_extent is a PARENT area that bounds it.
+
     Args:
         indicator_slug: Indicator slug, e.g. "population-count" (from
             search_indicators). Omit or pass "all" to fetch every indicator
             (optionally narrowed by topic).
         topic: Topic or sub-topic slug (from list_topics) to filter which
             indicators are returned when indicator_slug is omitted/"all".
-        area_codes: Specific GSS area codes to fetch, e.g. ["E08000025"].
+        area_codes: Specific area codes to fetch by GSS code, e.g. ["E08000025"].
             Not filtered by geo_extent - always returned as named.
-        geo_type: A single area-type code (e.g. "ltla" - see
-            list_geo_levels) to fetch every area of that type. Combines with
+        geo_type: Optional single area-type code (e.g. "ltla" - see
+            list_geo_levels) to fetch every area of that type. Can combine with
             area_codes in the same request.
         geo_extent: Optional parent area GSS code that bounds geo_type to
             areas within it (e.g. all "ltla" within a region). Has no effect
@@ -286,11 +294,15 @@ def query_data(
         time: "latest" (default), "earliest", "all", a year "YYYY", or a
             range "YYYY,YYYY".
 
-    Returns a list of rows: {areacd, areanm, period, value, ...}. Returns an
-    empty list if the indicator has no data for the requested area(s) - this
+    Returns a list of rows for a single indicator: {areacd, areanm, period, value, ...}.
+    Returns an empty list if the indicator has no data for the requested area(s) - this
     commonly happens when an area's country isn't covered by that indicator
     (check get_indicator_metadata's geography.countries, or use
     compare_indicator which surfaces this automatically with alternatives).
+
+    Returns - when multiple indicators are requested - a dict containing the slugs
+    of the selected indicators as keys, and a list of rows (as above) as the
+    value for each, eg. {indicator_one: [rows], indicator_two: [rows]}
 
     Raises ValueError if the request is too broad: at most one of
     {indicator/topic, geography, time} may be left unrestricted ("all") at
