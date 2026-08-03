@@ -25,7 +25,14 @@ from functools import lru_cache
 from typing import Any, Optional
 
 import requests
-from mcp.server.fastmcp import FastMCP
+
+try:
+    # Newer `mcp` releases expose the public package at this import path.
+    from mcp.server.fastmcp import FastMCP
+except ModuleNotFoundError:  # pragma: no cover - defensive compatibility
+    # Some older or differently packaged builds surface the class one level
+    # deeper; keep the app importable across both layouts.
+    from mcp.server.fastmcp.server import FastMCP
 
 BASE_URL = "https://www.ons.gov.uk/explore-local-statistics/api/v1"
 
