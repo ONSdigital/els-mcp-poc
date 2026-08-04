@@ -368,7 +368,8 @@ def rank_areas_by_indicator(
     if order not in ("asc", "desc"):
         raise ValueError("order must be 'asc' or 'desc'")
 
-    rows = query_data(indicator_slug, geo_type=geo_type, geo_extent=geo_extent, time=time)
+    data = query_data(indicator_slug, geo_type=geo_type, geo_extent=geo_extent, time=time)
+    rows = data[indicator_slug]
     valid = [r for r in rows if r.get("value") is not None]
     valid.sort(key=lambda r: r["value"], reverse=(order == "desc"))
     return valid[:top_n]
@@ -444,6 +445,7 @@ def compare_indicator(
             alt_suggestions.extend(alts[:5])
 
     data = query_data(indicator["slug"], area_codes=codes, time=time) if len(warnings) < len(areas) else []
+    rows = data[indicator["slug"]]
 
     return {
         "indicator": {
@@ -456,7 +458,7 @@ def compare_indicator(
             {"query": q, "matched": a["areanm"], "code": a["areacd"]}
             for q, a in zip([area_query, compare_to_query], areas)
         ],
-        "data": data,
+        "data": rows,
         "warnings": warnings,
         "alternative_indicators_for_uncovered_area": list(dict.fromkeys(alt_suggestions)),
     }
