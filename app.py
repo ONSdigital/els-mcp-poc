@@ -270,7 +270,7 @@ def query_data(
     geo_type: Optional[str] = None,
     geo_extent: Optional[str] = None,
     time: str = "latest",
-) -> list[dict]:
+) -> dict[str, list[dict]]:
     """Fetch observation values for one or many indicators across one or many
     areas - the general-purpose data tool. Covers everything from a single
     indicator/single area lookup to bulk pulls (e.g. every indicator in a
@@ -301,15 +301,14 @@ def query_data(
         time: "latest" (default), "earliest", "all", a year "YYYY", or a
             range "YYYY,YYYY".
 
-    Returns a list of rows for a single indicator: {areacd, areanm, period, value, ...}.
-    Returns an empty list if the indicator has no data for the requested area(s) - this
-    commonly happens when an area's country isn't covered by that indicator
-    (check get_indicator_metadata's geography.countries, or use
-    compare_indicator which surfaces this automatically with alternatives).
-
-    Returns - when multiple indicators are requested - a dict containing the slugs
-    of the selected indicators as keys, and a list of rows (as above) as the
-    value for each, eg. {indicator_one: [rows], indicator_two: [rows]}
+    Always returns a dict mapping each requested indicator's slug to a list of
+    its observation rows, e.g. {"cigarette-smokers": [{areacd, areanm, period, value, ...}, ...]}
+    - even for a single indicator, so the shape never changes based on how many
+    indicators were requested. An indicator's list is empty if it has no data
+    for the requested area(s) - this commonly happens when an area's country
+    isn't covered by that indicator (check get_indicator_metadata's
+    geography.countries, or use compare_indicator which surfaces this
+    automatically with alternatives).
 
     Raises ValueError if the request is too broad: at most one of
     {indicator/topic, geography, time} may be left unrestricted ("all") at
@@ -323,7 +322,7 @@ def query_data(
         geo_parts.append(geo_type)
     geo = ",".join(geo_parts) if geo_parts else "all"
 
-    return _get(
+    data = _get(
         "/data.rows.json",
         indicator=indicator_slug or "all",
         topic=topic,
@@ -333,7 +332,10 @@ def query_data(
         time=time,
         timeNearest="any",
     )
-
+    if type(data) is list:
+        return {indicator_slug: data}
+    else:
+        return data
 
 @mcp.tool()
 def rank_areas_by_indicator(
