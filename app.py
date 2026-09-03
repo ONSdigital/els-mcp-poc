@@ -34,7 +34,7 @@ except ModuleNotFoundError:  # pragma: no cover - defensive compatibility
     # deeper; keep the app importable across both layouts.
     from mcp.server.fastmcp.server import FastMCP
 
-BASE_URL = "https://local-statistics-git-develop-ons-visual.vercel.app/api/v1"
+BASE_URL = "https://els-app-mcp.vercel.app/api/v1"
 
 # Sensible "administrative area" levels for resolving a place name typed by a
 # person (city / town / local authority / region / country). Excludes finer
