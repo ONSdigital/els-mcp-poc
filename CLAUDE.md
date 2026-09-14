@@ -186,3 +186,17 @@ Once a real LLM client is wired up, re-run the example prompts in
 `docs/els-mcp-server-next-steps.md` end-to-end, not just as isolated tool calls — checking both
 which tool gets selected and whether the final answer is right catches problems neither a
 docstring review nor a per-tool test will. This hasn't been done yet as of this rewrite landing.
+
+**`api/mcp.ts` itself has only been smoke-tested indirectly, not through an actual Vercel
+deploy.** `vercel dev` requires an interactive OAuth device login that wasn't completable in the
+environment this was built in. What *has* been verified: `api/mcp.ts`'s exported `handler` (not
+`dev-server.ts`'s separate implementation) executes correctly end-to-end — including the
+`../src/server.js` cross-directory import — when driven directly through a plain Node
+`http.createServer` in the same way Vercel's Node.js Serverless Function runtime would invoke it.
+What that *doesn't* confirm: that Vercel's build step resolves the `api/` → `../src/` import the
+same way when building the function for deployment, and that the project's runtime config
+actually selects the classic `(req, res)` Node handler signature rather than a Web-standard one
+(no `export const config = { runtime: "edge" }` is set, so it shouldn't — Edge Runtime requires
+opting in — but this hasn't been confirmed against a real deploy). **Run an actual `vercel deploy`
+(or `vercel dev` with a logged-in account) and repeat the `initialize`/`tools/call health` checks
+against it before treating the deployment cutover (next-steps step 6) as done.**

@@ -240,23 +240,29 @@ export function registerGeographyTools(server: McpServer): void {
         }
       }
 
+      const eligibleCandidates = candidates.filter((c) => c.areacd !== code);
+      // Cap parallel /geo/lookup calls for a single tool call (a country-wide ltla scope could
+      // otherwise mean ~300 sequential-ish requests). This caps candidates BEFORE ranking by
+      // distance, in whatever order the API returned them — so if the cap actually bites, the
+      // true nearest areas could be outside the capped slice, not just "slower to compute."
+      // Surfaced via `truncated` below rather than silently returning a possibly-wrong result as
+      // if it were exhaustive.
+      const CANDIDATE_CAP = 200;
+      const truncated = eligibleCandidates.length > CANDIDATE_CAP;
       const withCentroids = await Promise.all(
-        candidates
-          .filter((c) => c.areacd !== code)
-          .slice(0, 200) // cap parallel lookups for a single tool call
-          .map(async (c) => {
-            const detail = await elsGet<{ properties: { centroid?: [number, number] } }>(
-              `/geo/lookup/${encodeURIComponent(c.areacd)}`,
-            ).catch(() => null);
-            const candidateCentroid = detail?.properties.centroid;
-            return candidateCentroid
-              ? {
-                  areacd: c.areacd,
-                  areanm: c.areanm,
-                  distance_km: haversineKm(centroid, candidateCentroid),
-                }
-              : null;
-          }),
+        eligibleCandidates.slice(0, CANDIDATE_CAP).map(async (c) => {
+          const detail = await elsGet<{ properties: { centroid?: [number, number] } }>(
+            `/geo/lookup/${encodeURIComponent(c.areacd)}`,
+          ).catch(() => null);
+          const candidateCentroid = detail?.properties.centroid;
+          return candidateCentroid
+            ? {
+                areacd: c.areacd,
+                areanm: c.areanm,
+                distance_km: haversineKm(centroid, candidateCentroid),
+              }
+            : null;
+        }),
       );
 
       const ranked = withCentroids
@@ -264,7 +270,17 @@ export function registerGeographyTools(server: McpServer): void {
         .sort((a, b) => a.distance_km - b.distance_km)
         .map((r) => ({ ...r, distance_km: Math.round(r.distance_km * 10) / 10 }));
 
-      return jsonResult(ranked.slice(0, count ?? 10));
+      return jsonResult({
+        results: ranked.slice(0, count ?? 10),
+        ...(truncated
+          ? {
+              note:
+                `Candidate set capped at ${CANDIDATE_CAP} areas (${eligibleCandidates.length} ` +
+                "found) before distance-ranking — results may not include the true nearest " +
+                "areas. Try a narrower geo_type or a more local starting area.",
+            }
+          : {}),
+      });
     },
   );
 
