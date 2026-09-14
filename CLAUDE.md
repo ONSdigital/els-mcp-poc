@@ -2,14 +2,48 @@
 
 Guidance for Claude Code (or a human) working in this repository.
 
-**Status: this file is written ahead of the code it describes.** The repo is being rewritten from
-a Python/FastMCP proof-of-concept to TypeScript/Node — at the time of writing, none of the
-structure below exists yet. Treat every section as the intended design until the corresponding
-code lands, and **update this file once it diverges from reality** rather than letting it drift.
-Full reasoning behind the design lives in `docs/design.md` (tool spec, gap analysis, why each
-decision was made) and `docs/next-steps.md` (build order, verification checklist) — both should be
-copied into this repo from the Desktop before starting. This file doesn't repeat their content,
-only the parts relevant to writing code day to day.
+**Status: most of this file is written ahead of the code it describes.** The repo is being
+rewritten from a Python/FastMCP proof-of-concept (the code that currently exists — see "Current
+state" below) to TypeScript/Node. Treat every section below "Current state" as the intended design
+until the corresponding code lands, and **update this file once it diverges from reality** rather
+than letting it drift. Full reasoning behind the design lives in `docs/els-mcp-server-design.md`
+(tool spec, gap analysis, why each decision was made) and `docs/els-mcp-server-next-steps.md`
+(build order, verification checklist) — both are already in this repo. This file doesn't repeat
+their content, only the parts relevant to writing code day to day.
+
+## Current state: the Python proof-of-concept
+
+This is what actually exists right now — read this section to work in the repo today, before the
+Node rewrite lands.
+
+- `app.py` defines every tool (`@mcp.tool()`, FastMCP) and the `_get()` HTTP wrapper around
+  `BASE_URL`. `api/index.py` is a thin Vercel entry point: it imports `mcp` from `app.py` and wraps
+  its ASGI app in `_VercelRouteCompat`, which rewrites the incoming `/api` path back to `/mcp`
+  because Vercel serves the Python function at `/api` while FastMCP's own router only answers at
+  `/mcp` — `vercel.json` does the public-facing `/mcp` → `/api` rewrite that makes this necessary.
+- **Only two ways this app runs: locally (for preview/dev) and deployed to Vercel (for external
+  use).** It is no longer deployed to Databricks Apps — `app.yaml` and the `DATABRICKS_APP_PORT`
+  handling in `app.py` (`mcp = FastMCP(..., port=APP_PORT)`, used when running `app.py` directly
+  rather than through `api/index.py`) are leftover from when it was; don't treat them as a live
+  deployment target, and feel free to remove them when touching that code.
+- Local run (see README.md for the full walkthrough):
+  ```bash
+  python3 -m venv .mcpenv && source .mcpenv/bin/activate && pip install -r requirements.txt
+  python3 -m uvicorn api.index:app --host 127.0.0.1 --port 8001
+  ```
+  `.vscode/mcp.json` already has an `els-mcp-test` entry pointing at
+  `http://localhost:8001/mcp` for a local client, alongside `els-mcp-server` pointing at the
+  deployed Vercel instance.
+- No lint, format, or test tooling is configured for the Python code (no pytest, no ruff/black
+  config) — `requirements.txt` only lists runtime deps (`mcp`, `requests`). Verification is done by
+  calling the `health` tool and the other tools directly against the live ELS API through a
+  connected MCP client, per "Verification" below.
+- The 12 existing tools, grouped as the design doc's target groups already anticipate: geography
+  (`search_areas`, `resolve_area`, `get_area_details`, `get_related_areas`, `list_geo_levels`),
+  metadata (`search_indicators`, `get_indicator_metadata`, `list_topics`), data (`query_data`,
+  `rank_areas_by_indicator`, `compare_indicator`), plus `health`. `_all_indicators()` and
+  `_geo_levels()` are `@lru_cache`d module-level (see "Caching" below for why that doesn't carry
+  over as-is to the Node/Vercel rewrite).
 
 ## Project overview
 
@@ -21,8 +55,9 @@ than relying on training-data recall. Runs over Streamable HTTP, deployed to Ver
 Previous version (Python, `mcp`/FastMCP, `requests`) is being replaced for three reasons: Vercel's
 Python ASGI runtime needed a path-rewriting compatibility shim that Node doesn't; the maintainer
 reads/reviews TypeScript more fluently; and the tool design itself needed rework (see
-`docs/design.md`), not just a language port. The old implementation should stay on a branch/tag
-for reference, not deleted outright, in case behaviour needs cross-checking mid-rewrite.
+`docs/els-mcp-server-design.md`), not just a language port. The old implementation should stay on
+a branch/tag for reference, not deleted outright, in case behaviour needs cross-checking
+mid-rewrite.
 
 ## The ELS API is documented elsewhere — don't re-derive its behaviour here
 
@@ -33,6 +68,14 @@ tool that touches a new part of the API, rather than guessing from the Python ve
 or from first principles. **Caveat:** as of the design conversation this repo's rewrite is based
 on, that documentation existed only as uncommitted changes on an `api-improvements` branch —
 confirm it's merged before treating links to it as stable.
+
+**API base URL for the rewrite:** for now, point the Node client at
+`https://local-statistics-git-api-improvements-ons-visual.vercel.app/api/v1` — a preview
+deployment of that same `api-improvements` branch, not the production ELS API. Read this from an
+`ELS_API_BASE_URL` env var from the first commit (not a hardcoded constant like the Python
+version's `BASE_URL`), so repointing it at the production base URL once that branch merges is a
+config change, not a code edit — and re-run tool verification after that repoint, since a preview
+and production can drift.
 
 A few facts worth keeping in working memory anyway, because they directly shaped this server's
 design (not just the underlying HTTP API's):
@@ -45,14 +88,14 @@ design (not just the underlying HTTP API's):
   coverage** (e.g. `employment-rate` vs. `employment-rate-ni`) — nothing in the API itself points
   one at the other. This is *why* every data-returning tool here must attach a `coverage` summary
   (requested vs. returned) rather than just passing through whatever rows came back — see
-  `docs/design.md`.
+  `docs/els-mcp-server-design.md`.
 - **GSS codes are case-insensitive on every endpoint** and the geography-level vocabulary differs
   by route (a 5-level statistical set vs. a wider 14-level navigation set vs. the boundary map's
   own set) — this tool layer should pick one consistent level vocabulary to expose (the 5-level
   set: `ctry`/`rgn`/`cauth`/`utla`/`ltla`, matching indicator data's own granularity) and normalise
   case internally, so no tool description ever needs to explain either quirk to the calling model.
 
-## Design principles (see `docs/design.md` for the full reasoning)
+## Design principles (see `docs/els-mcp-server-design.md` for the full reasoning)
 
 - **Task-shaped tools, not a REST mirror.** Fewer tools with parameters beats more tools with
   overlapping purposes — tool *selection* is itself a place an LLM goes wrong.
@@ -71,11 +114,15 @@ design (not just the underlying HTTP API's):
 
 ## Architecture (intended — update once real code exists)
 
-- Tool definitions grouped by domain, matching `docs/design.md`'s three groups: geography,
-  metadata, data. One module per group, not one file per tool and not one large file.
+- Tool definitions grouped by domain, matching `docs/els-mcp-server-design.md`'s three groups:
+  geography, metadata, data. One module per group, not one file per tool and not one large file.
 - A single HTTP client wrapper around the ELS API (base URL, GSS-code upper-casing, JSON parsing)
   that every tool goes through — this is where the "absorb the sharp edges" principle actually
-  gets implemented, once, rather than per-tool.
+  gets implemented, once, rather than per-tool. This includes telling "no data" apart from an
+  error: the ELS API returns `200` with an empty-shaped body for a request that matches nothing,
+  so the wrapper's return type should make emptiness explicit (e.g. `{ rows, isEmpty }`) rather
+  than leaving "check the array length" as something every tool author has to remember — this
+  exact bug class was already reintroduced once in the main ELS app's own frontend.
 - **Caching**: the Python version used `@lru_cache` on the indicator catalogue and geo-levels list,
   assuming a long-lived process. On Vercel's serverless Node runtime, module-level state persists
   only across a warm function instance, not reliably across every invocation — a cold start resets
@@ -101,7 +148,7 @@ found during that work. At minimum, per tool: one populated case, one genuinely 
 (confirm it's handled as "no data" and not mistaken for an error), and for anything returning a
 `coverage` field, one case with real incomplete coverage to confirm the gap is actually surfaced.
 
-Once enough tools exist, re-run the example prompts in `docs/next-steps.md` end-to-end through an
-actual LLM client, not just as isolated tool calls — checking both which tool gets selected and
-whether the final answer is right catches problems neither a docstring review nor a per-tool test
-will.
+Once enough tools exist, re-run the example prompts in `docs/els-mcp-server-next-steps.md`
+end-to-end through an actual LLM client, not just as isolated tool calls — checking both which
+tool gets selected and whether the final answer is right catches problems neither a docstring
+review nor a per-tool test will.

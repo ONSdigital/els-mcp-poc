@@ -84,7 +84,7 @@ Each of these traces led to a specific tool-design decision below — noted inli
 | "Compare Norwich to nearby areas" | Three different, conflated notions of "related": administrative siblings, statistical similarity, and geographic proximity — only the first two are exposed, neither is genuine "nearby." | Either add real distance-based nearby lookup (derivable from area centroids already in the data) or make the existing tool's documentation explicit that "siblings"/"similar" are not spatial proximity, so the model doesn't default to the wrong one silently. |
 | "What's the unemployment rate in Poole?" (pre-2019, now merged into a different authority) | Area search is hard-wired to "latest," even though the underlying API supports year-aware lookup — a historical name may resolve to nothing, or silently the wrong thing, with no signal either way. | Expose a year/`as_of` parameter on area search, defaulting to latest but allowing historical lookups. |
 | "Female employment rate in Norwich vs. male" | Worse than a clean failure: the model gets an answer (the unbroken-down overall rate) and may present it as if it answered the sex-specific question, since nothing flags that a breakdown was possible. Dimension keys are visible in indicator metadata, but there's no way to filter by them. | Add dimension filtering to the core data tool. |
-| "Is Norwich's rate significantly different from Norfolk's?" | Confidence interval columns are already in the raw data when present; nothing surfaces or uses them. | Surface confidence intervals explicitly in data responses when present, and consider flagging non-overlapping vs. overlapping intervals directly rather than leaving the interpretation entirely to the model. |
+| "Is Norwich's rate significantly different from Norfolk's?" | Confidence interval columns are already in the raw data when present; nothing surfaces or uses them. | Surface confidence intervals explicitly in data responses when present, and flag non-overlapping vs. overlapping intervals directly rather than leaving the interpretation entirely to the model. This is a property of every row `get_indicator_data` returns (see "Data" below), not tied to any one tool — it survived `compare_indicators_across_areas` being folded into `get_indicator_data` as the `pivot` param, since the row shape (and its CI field) is the same regardless of pivot. |
 | "Tell me about Cornwall" | No "headline indicator set" concept — the model has to guess which handful of 110+ indicators constitute a sensible default profile, inconsistently, each time. | Add a curated default-indicators area-profile tool. |
 | "Can I get this as a spreadsheet?" | The API now has clean single/multi-indicator XLSX/CSV endpoints; no tool bridges a conversational query into the equivalent download link. | Add a tool that takes the same query parameters already used and returns the matching download URL. |
 | Any "all areas" / UK-wide query | The concrete, verified case: `employment-rate` and `employment-rate-ni` are two separate indicator slugs for essentially the same concept, split by country coverage (the GB one's own description notes "Northern Ireland national figure included," but Northern Ireland isn't broken down to local-authority level the way Great Britain is). Nothing tells the model a second, differently-named indicator might be relevant, or that a "UK-wide" result is quietly missing part of the UK. | General coverage-summary mechanism (below) — solves this without needing fragile indicator-name-pairing heuristics, and catches ordinary gaps (a year an authority didn't report, an indicator missing above/below a given level) the same way, not just the Northern Ireland case specifically. |
@@ -93,7 +93,10 @@ Each of these traces led to a specific tool-design decision below — noted inli
 
 ### Geography
 
-**`search_areas(query, levels?, limit?)`** — keep as-is; already reasonable.
+**`search_areas(query, levels?, limit?)`** — keep as-is; already reasonable. Tool description should
+state plainly that "city" is not a geography level this API exposes (a ceremonial UK designation
+with no corresponding level in the geography model) — a model asking for "cities" needs to know
+that's unanswerable here, not silently get zero/wrong results.
 
 **`resolve_area(query, levels?, as_of_year?)`** — keep, add `as_of_year` (default latest) so a
 historical/pre-reorganisation name can still resolve, with the result flagging when a match was
@@ -131,61 +134,108 @@ coverage/dimensions.
 
 ### Data
 
-**`get_indicator_data(indicators, areas?, geo_type?, geo_extent?, time?, dimensions?)`**
-*(replaces `query_data`)* — the core data tool.
+**`get_indicator_data(indicators, areas?, geo_type?, geo_extent?, time?, dimensions?, pivot?,
+download_format?)`** *(replaces `query_data`)* — the core data tool, and the **only** data tool
+besides `rank_areas`/`rank_areas_by_change`/`get_area_profile`. Both `compare_indicators_across_areas`
+and `get_download_link`, originally proposed as separate tools, turned out to be this same tool
+with a different output framing — folded in here instead, per the "fewer tools, not more" principle
+this doc leads with (an advisor review of this plan caught that the 12→17 tool count contradicted
+that principle; see below).
 
 - `indicators` is a list (fixes: no way to request an explicit set of named indicators together
   in the proof-of-concept — only one slug, or a topic filter).
 - `dimensions` is an optional `{dimension: value}` map for breakdowns like age/sex on multivariate
   indicators (fixes: no way to filter by a dimension at all currently, despite the dimension keys
   being visible in metadata).
+- `pivot` (optional, default `"indicator"`): `"indicator"` groups the response by indicator (the
+  default, current shape); `"area"` pivots it to one row per area, one column per indicator —
+  this *is* the former `compare_indicators_across_areas`, now just an output-orientation switch on
+  the same fetch rather than a second tool the model has to know to reach for.
+- `download_format` (optional: `"csv"` | `"xlsx"`): when set, the response also includes a
+  `downloadUrl` for the matching file — this *is* the former `get_download_link`, folded in
+  because it always took "the same shape of parameters as `get_indicator_data`" per the original
+  spec, so there was nothing left for a separate tool to do.
 - Always calls the multi-indicator endpoint internally regardless of how many `indicators` were
   given — the single/multi split is invisible at this layer.
-- Response shape: `{ coverage: {...}, indicators: { <slug>: { metadata: {...}, data: [...] } } }`
-  — `coverage` states what was requested vs. what actually came back (area count requested vs.
-  returned, per indicator); `metadata` is `label`/`source`/`unit`/`caveats`/`updated`, pulled from
-  the already-cached indicator catalogue, not a separate round trip.
+- Response shape: `{ coverage: {...}, indicators: { <slug>: { metadata: {...}, data: [...] } },
+  downloadUrl? }` (or the area-pivoted equivalent when `pivot: "area"`).
+  - `metadata` is **indicator-level, one per indicator, not per row**: `label`/`source`/`unit`/
+    `caveats`/`updated` (when the underlying dataset was last refreshed), pulled from the
+    already-cached indicator catalogue, not a separate round trip. This answers "where did this
+    number come from" and "how current is the dataset as a whole."
+  - `data` is the list of observation rows, and each row carries **its own date/period and, where
+    the API provides one, its own confidence interval** — these are row-level, not indicator-level,
+    because a single query can span multiple periods and areas whose figures don't all update
+    together: `{ areacd, areanm, period, value, ci?: { lower, upper, level: 0.95 } }`. `period` is
+    whatever the underlying observation actually reports — a single year/quarter or a range (e.g.
+    a 3-year rolling average) — passed through as-is rather than normalised to one shape, since
+    collapsing a range to a single date would misrepresent what the figure covers. Confirm the
+    exact field names against `docs/api/data-formats.md` when that's available; the API is already
+    confirmed to carry CI columns when present (see "Gaps found," Norwich/Norfolk row) — this tool
+    must surface them, not drop them, and should flag in `metadata` (or a `notes` field) when two
+    areas' intervals don't overlap, so the model doesn't have to eyeball two numbers against a
+    margin of error itself. This applies equally under `pivot: "area"` — the pivoted shape doesn't
+    get to drop period/CI just because indicators are now columns instead of an outer key.
+- **`coverage` shape** (needs to be settled here, not invented ad hoc per tool that returns it):
+  ```json
+  {
+    "requested": { "indicators": ["employment-rate"], "areas": ["S12000036"], "countries": ["E","W","S","N"] },
+    "returned":  { "indicators": ["employment-rate"], "areas": ["S12000036"], "countries": ["S"] },
+    "missing":   [{ "type": "country", "value": "N", "reason": "not covered by employment-rate; try employment-rate-ni" }]
+  }
+  ```
+  This is deliberately built around *what* is missing (a country, an area, a period) and *why*
+  when known, not just a requested-vs-returned area count — a count alone wouldn't have surfaced
+  the `employment-rate`/`employment-rate-ni` split that originally motivated this field (see
+  "Gaps found," last row).
+- The HTTP client wrapper (not each tool individually) is responsible for telling "no data" apart
+  from an error: the ELS API returns `200` with an empty-shaped body for a request that resolves
+  but matches nothing, so the wrapper's return type should make emptiness explicit (e.g.
+  `{ rows, isEmpty }`) rather than leaving "check the array length" as a discipline every tool
+  author has to remember. This is the same bug class already fixed once in the main ELS app's own
+  frontend after this API change — worth not reintroducing it here by construction.
 
-**`compare_indicators_across_areas(indicators, areas | geo_type + geo_extent, time?)`** *(new)* —
-the pivot tool: one row per area, one column per indicator, built server-side. Directly answers
-"compare these local authorities across these indicators" without asking the model to reconstruct
-the table from an indicator-grouped response itself. Same `coverage` block as above.
+**`rank_areas(indicator, geo_type, geo_extent?, time?, dimensions?, top_n?)`** *(replaces
+`rank_areas_by_indicator`)* — returns **both ends** of the sorted list, not a `desc`/`asc`-selected
+top N and not the full list either (a full sort of ~360 LTLAs with provenance attached is a large
+payload for a tool called casually — the fix for the direction-guessing problem doesn't require
+that much data). Response shape: `{ top: [...], bottom: [...], total_ranked: N, unit,
+direction_note }`, `top_n` (default e.g. 10) controlling how many of each end come back. Removes
+the failure mode where the model has to correctly guess ranking direction before calling — it can
+read the indicator's own unit/label and `direction_note` in the same response and pick the
+relevant end itself, rather than the tool silently returning the wrong end on a bad guess.
 
-**`rank_areas(indicator, geo_type, geo_extent?, time?, dimensions?)`** *(replaces
-`rank_areas_by_indicator`)* — returns the **full** sorted list (or explicitly both the top and
-bottom N), not just a `desc`/`asc`-selected top N. Removes the failure mode where the model has
-to correctly guess ranking direction before calling — it can read the indicator's own unit/label
-in the same response and pick the relevant end itself, rather than the tool silently returning
-the wrong end on a bad guess.
-
-**`rank_areas_by_change(indicator, geo_type, geo_extent?, start_time, end_time)`** *(new)* —
-same shape as `rank_areas`, ranked by change between two periods rather than a point value.
-Closes the "fastest-growing" gap.
+**`rank_areas_by_change(indicator, geo_type, geo_extent?, start_time, end_time, top_n?)`** *(new)* —
+same response shape as `rank_areas` (top/bottom, not a full list), ranked by change between two
+periods rather than a point value. This one earns being a separate tool from `rank_areas`: it's a
+genuinely different computation (a delta between two fetches), not an output-framing choice on the
+same fetch the way the two data-tool merges above were.
 
 **`get_area_profile(area_code, indicators?)`** *(new)* — a curated default set of headline
 indicators (population, median age, employment rate, and a small fixed list beyond that) for one
 area, with an optional override list. Gives "tell me about X" a consistent, cheap answer instead
 of ad hoc guessing across 110+ indicators each time.
 
-**`get_download_link(indicators, areas?, geo_type?, geo_extent?, time?, format)`** *(new)* —
-takes the same shape of parameters as `get_indicator_data` and returns the matching XLSX/CSV
-download URL, so a conversational exploration can end with "here's the file."
-
 **`health()`** — keep as-is.
 
 **Retire `compare_indicator`.** Its country-coverage-warning logic becomes redundant once
 `coverage` is a standard part of every data response rather than a bespoke feature of one tool —
-and its "resolve two place names, fetch, compare" pattern is just `get_indicator_data` or
-`compare_indicators_across_areas` plus `resolve_area`, composed by the model rather than
+and its "resolve two place names, fetch, compare" pattern is just `get_indicator_data` (with
+`pivot: "area"` for more than one area) plus `resolve_area`, composed by the model rather than
 hard-coded as its own tool. One fewer overlapping tool for the model to choose between.
 
 ## Net tool count
 
-12 → 17: `search_areas`, `resolve_area`, `get_area_details`, `get_related_areas`,
+12 → 14: `search_areas`, `resolve_area`, `get_area_details`, `get_related_areas`,
 `get_nearby_areas` (new), `list_geo_levels`, `lookup_area` (new), `search_indicators`,
-`get_indicator_metadata`, `list_topics`, `get_indicator_data` (replaces `query_data`),
-`compare_indicators_across_areas` (new), `rank_areas` (replaces `rank_areas_by_indicator`),
-`rank_areas_by_change` (new), `get_area_profile` (new), `get_download_link` (new), `health`.
-Six additions, one retirement (`compare_indicator`), two renamed/reworked in place. Most of the
-growth closes a real gap traced against a concrete prompt above, not speculative coverage — worth
-re-checking against real usage once built rather than treating this count as final.
+`get_indicator_metadata`, `list_topics`, `get_indicator_data` (replaces `query_data`; absorbs the
+originally-proposed `compare_indicators_across_areas` and `get_download_link` as parameters —
+see "Data" above), `rank_areas` (replaces `rank_areas_by_indicator`), `rank_areas_by_change`
+(new), `get_area_profile` (new), `health`.
+
+Four additions (`get_nearby_areas`, `lookup_area`, `rank_areas_by_change`, `get_area_profile`),
+one retirement (`compare_indicator`), two renamed/reworked in place, two originally-proposed new
+tools absorbed as parameters on `get_indicator_data` rather than built. This growth closes a real
+gap traced against a concrete prompt above, not speculative coverage, and now actually holds to
+the "fewer tools, not more" principle this doc opens with — worth re-checking against real usage
+once built rather than treating this count as final.

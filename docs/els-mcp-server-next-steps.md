@@ -23,17 +23,24 @@ re-doing the Vercel project setup from scratch.
   of the stack specifically).
 - No ASGI compat shim needed this time — that whole problem (`_VercelRouteCompat` in the old
   `api/index.py`) was Python-runtime-specific and doesn't recur on Node.
-- Drop `els-mcp-server-design.md` into the new repo now, e.g. as `docs/design.md`, so it travels
-  with the code from the start rather than living only on the Desktop. Once `docs/api/` is
-  actually merged in `explore-local-statistics-app`, update the link in that doc and remove the
-  "not yet merged" caveat.
+- **API base URL as an env var from the first commit** (`ELS_API_BASE_URL`), not a hardcoded
+  constant like the Python version's `BASE_URL`. For now this points at a Vercel branch preview of
+  `api-improvements` (`https://local-statistics-git-api-improvements-ons-visual.vercel.app/api/v1`
+  — see CLAUDE.md), which moves or disappears with that branch; swapping to the production URL
+  once it merges should be a one-line config change, not a code edit.
+- `els-mcp-server-design.md` and `els-mcp-server-next-steps.md` already live in this repo under
+  `docs/` — no copying needed. Once `docs/api/` is actually merged in
+  `explore-local-statistics-app`, update the links in the design doc and remove its "not yet
+  merged" caveat.
 
 ## 3. Build order
 
 Bottom-up, since later tools depend on earlier ones resolving names to codes/slugs:
 
 1. `health`, `list_geo_levels`, `list_topics` — no dependencies, easiest to verify, confirms the
-   transport/deployment plumbing works end to end first.
+   transport/deployment plumbing works end to end first. This is also the cheapest point to
+   confirm the `api-improvements` preview URL is actually up and that its response shapes match
+   `docs/api/` — do this before writing any other tool, since everything downstream assumes both.
 2. `search_areas` / `resolve_area` / `lookup_area` (postcode/coordinate) — area resolution,
    needed by nearly everything downstream.
 3. `search_indicators` / `get_indicator_metadata` — indicator resolution, same reasoning. This is
@@ -41,9 +48,12 @@ Bottom-up, since later tools depend on earlier ones resolving names to codes/slu
    — worth getting right early since it's upstream of most other tools' reliability.
 4. `get_area_details`, `get_related_areas`, `get_nearby_areas` — geography detail, no
    data-endpoint dependency.
-5. `get_indicator_data` — the core data tool; everything else in this group builds on it.
-6. `compare_indicators_across_areas`, `rank_areas`, `rank_areas_by_change`, `get_area_profile`,
-   `get_download_link` — the compound/derived tools, built on top of 5.
+5. `get_indicator_data` — the core data tool, including its `pivot` and `download_format` options
+   (the former `compare_indicators_across_areas` and `get_download_link` tools — see design doc's
+   "Data" section for why these ended up as parameters, not separate tools); everything else in
+   this group builds on it.
+6. `rank_areas`, `rank_areas_by_change`, `get_area_profile` — the compound/derived tools, built on
+   top of 5.
 
 ## 4. Verify each tool against the live API
 
@@ -55,11 +65,20 @@ include:
 - A populated case and a genuinely empty case (confirm the empty case is handled as "no data,"
   not as an error — this is the exact bug class just fixed in the main app's own frontend, worth
   checking for here too).
-- For `get_indicator_data` / `compare_indicators_across_areas`: a case where coverage is
-  genuinely incomplete (e.g. a Great-Britain-only indicator requested across UK-wide areas),
-  confirming the `coverage` field actually reflects the gap.
-- For `rank_areas`: confirm it returns enough of the sorted list (or explicitly both ends) that a
-  bad direction-guess doesn't silently return the wrong answer.
+- For `get_indicator_data` (both `pivot` values): a case where coverage is genuinely incomplete
+  (e.g. a Great-Britain-only indicator requested across UK-wide areas), confirming the `coverage`
+  field actually reflects the gap using the shape specified in the design doc (requested/returned/
+  missing, not just an area count).
+- For `get_indicator_data`: confirm `metadata.source`/`updated` come through per indicator, and
+  that each row's `period` (and `ci`, for an indicator that has one — e.g. compare two areas on an
+  indicator known to carry confidence intervals) actually round-trips from the live API rather
+  than being dropped or normalised away. Check this under `pivot: "area"` too, not just the
+  default indicator-grouped shape.
+- For `rank_areas`: confirm the `top`/`bottom` response actually gives both ends (not just one
+  `desc`/`asc`-selected end) so a bad direction-guess doesn't silently return the wrong answer.
+- Verification against the `api-improvements` preview URL has a shelf life: once that branch
+  merges and `ELS_API_BASE_URL` is repointed at production, re-run the populated/empty/coverage
+  checks for any tool verified beforehand — a preview and production can drift.
 
 ## 5. Re-run the example prompts as an actual eval, not just a thought experiment
 
