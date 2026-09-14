@@ -188,15 +188,19 @@ which tool gets selected and whether the final answer is right catches problems 
 docstring review nor a per-tool test will. This hasn't been done yet as of this rewrite landing.
 
 **`api/mcp.ts` itself has only been smoke-tested indirectly, not through an actual Vercel
-deploy.** `vercel dev` requires an interactive OAuth device login that wasn't completable in the
-environment this was built in. What *has* been verified: `api/mcp.ts`'s exported `handler` (not
+deploy.** Deployment for this project is via Vercel's GitHub integration (push/merge triggers a
+build), not the `vercel` CLI, so the CLI's own `vercel dev`/`vercel deploy` were never the
+intended path here anyway — noted below only so the *coverage gap* is clear, not as a suggestion
+to use the CLI. What *has* been verified: `api/mcp.ts`'s exported `handler` (not
 `dev-server.ts`'s separate implementation) executes correctly end-to-end — including the
 `../src/server.js` cross-directory import — when driven directly through a plain Node
 `http.createServer` in the same way Vercel's Node.js Serverless Function runtime would invoke it.
-What that *doesn't* confirm: that Vercel's build step resolves the `api/` → `../src/` import the
-same way when building the function for deployment, and that the project's runtime config
+What that *doesn't* confirm: that Vercel's own build step resolves the `api/` → `../src/` import
+the same way when building the function for a real deploy, and that the project's runtime config
 actually selects the classic `(req, res)` Node handler signature rather than a Web-standard one
 (no `export const config = { runtime: "edge" }` is set, so it shouldn't — Edge Runtime requires
-opting in — but this hasn't been confirmed against a real deploy). **Run an actual `vercel deploy`
-(or `vercel dev` with a logged-in account) and repeat the `initialize`/`tools/call health` checks
-against it before treating the deployment cutover (next-steps step 6) as done.**
+opting in — but this hasn't been confirmed against a real deploy). **After the first GitHub-triggered
+deploy, repeat the `initialize`/`tools/call health` checks against `https://<the deployed
+url>/mcp` before treating the deployment cutover (next-steps step 6) as done** — remember
+`ELS_API_BASE_URL` must also be set in the Vercel project's environment variables, not just
+locally, or that first deploy 500s.
