@@ -1,5 +1,11 @@
 # ELS MCP server — implementation checklist
 
+**Status: steps 1-4 are done** — the Node/TypeScript scaffold exists, all 14 tools + `health` are
+built and registered, and each has been exercised at least once against the live
+`api-improvements` preview API per the verification discipline in step 4 (see CLAUDE.md's "Sharp
+edges discovered live" for what that verification actually caught). Steps 5-6 (a real end-to-end
+LLM client eval, deployment cutover) are still outstanding.
+
 Practical next steps for building the redesigned MCP server. Companion to
 `els-mcp-server-design.md` (the tool spec and the reasoning behind it) — this document is the
 "what to actually do" checklist; that one is the "what to build and why."

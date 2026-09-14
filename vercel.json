@@ -3,11 +3,7 @@
   "rewrites": [
     {
       "source": "/mcp",
-      "destination": "/api"
-    },
-    {
-      "source": "/mcp/:path*",
-      "destination": "/api/:path*"
+      "destination": "/api/mcp"
     }
   ]
 }
