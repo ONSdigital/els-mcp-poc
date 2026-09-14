@@ -70,10 +70,20 @@ include:
   field actually reflects the gap using the shape specified in the design doc (requested/returned/
   missing, not just an area count).
 - For `get_indicator_data`: confirm `metadata.source`/`updated` come through per indicator, and
-  that each row's `period` (and `ci`, for an indicator that has one — e.g. compare two areas on an
-  indicator known to carry confidence intervals) actually round-trips from the live API rather
-  than being dropped or normalised away. Check this under `pivot: "area"` too, not just the
-  default indicator-grouped shape.
+  that each row's `period` (ISO 8601 interval, e.g. `"2023-01-01/P1Y"`) round-trips from the live
+  API with that exact field name — the design doc sourced these from `docs/api/data-formats.md`
+  on the unmerged `api-improvements` branch, not a verified live call, so this is the first real
+  check of whether that's accurate. Check this under `pivot: "area"` too, not just the default
+  indicator-grouped shape.
+- Confidence intervals need **two** cases, not one, since `confidenceIntervals` is a per-indicator
+  property (the metadata endpoint already exposes it as a boolean — not something to infer by
+  sampling rows): (a) an indicator with `confidenceIntervals: true`, confirming `lci_95`/`uci_95`
+  actually round-trip on every row and the non-overlap flagging fires when comparing two areas;
+  (b) an indicator with `confidenceIntervals: false`, confirming the response says so explicitly
+  rather than silently omitting any comment about it — a silent omission would misread as
+  "measured and no difference" instead of "not measured at all." Also confirm
+  `get_indicator_metadata` surfaces `confidenceIntervals` correctly for both cases, since
+  `get_indicator_data`'s own gating depends on reading it from there rather than checking rows.
 - For `rank_areas`: confirm the `top`/`bottom` response actually gives both ends (not just one
   `desc`/`asc`-selected end) so a bad direction-guess doesn't silently return the wrong answer.
 - Verification against the `api-improvements` preview URL has a shelf life: once that branch

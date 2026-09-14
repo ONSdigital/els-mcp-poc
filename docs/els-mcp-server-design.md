@@ -127,7 +127,9 @@ nothing, say so explicitly and suggest `list_topics` as a fallback, rather than 
 silent empty list.
 
 **`get_indicator_metadata(slug)`** — keep as-is; already returns source/caveats/geography
-coverage/dimensions.
+coverage/dimensions, and the metadata endpoint's own `confidenceIntervals` boolean should be
+passed straight through (not renamed or re-derived) — see "Data" below for why `get_indicator_data`
+needs this same field.
 
 **`list_topics()`** — keep as-is, and treat as the *primary* discovery path in tool descriptions
 (browse by topic first, free-text search second) given how fragile keyword search is on its own.
@@ -160,22 +162,33 @@ that principle; see below).
 - Response shape: `{ coverage: {...}, indicators: { <slug>: { metadata: {...}, data: [...] } },
   downloadUrl? }` (or the area-pivoted equivalent when `pivot: "area"`).
   - `metadata` is **indicator-level, one per indicator, not per row**: `label`/`source`/`unit`/
-    `caveats`/`updated` (when the underlying dataset was last refreshed), pulled from the
+    `caveats`/`updated` (when the underlying dataset was last refreshed), and
+    **`confidenceIntervals`** (boolean) — pulled straight through from the metadata endpoint, which
+    already exposes this exact field, not inferred by sampling rows. All of it comes from the
     already-cached indicator catalogue, not a separate round trip. This answers "where did this
-    number come from" and "how current is the dataset as a whole."
-  - `data` is the list of observation rows, and each row carries **its own date/period and, where
-    the API provides one, its own confidence interval** — these are row-level, not indicator-level,
-    because a single query can span multiple periods and areas whose figures don't all update
-    together: `{ areacd, areanm, period, value, ci?: { lower, upper, level: 0.95 } }`. `period` is
-    whatever the underlying observation actually reports — a single year/quarter or a range (e.g.
-    a 3-year rolling average) — passed through as-is rather than normalised to one shape, since
-    collapsing a range to a single date would misrepresent what the figure covers. Confirm the
-    exact field names against `docs/api/data-formats.md` when that's available; the API is already
-    confirmed to carry CI columns when present (see "Gaps found," Norwich/Norfolk row) — this tool
-    must surface them, not drop them, and should flag in `metadata` (or a `notes` field) when two
-    areas' intervals don't overlap, so the model doesn't have to eyeball two numbers against a
-    margin of error itself. This applies equally under `pivot: "area"` — the pivoted shape doesn't
-    get to drop period/CI just because indicators are now columns instead of an outer key.
+    number come from," "how current is the dataset as a whole," and "does this indicator carry
+    margins of error at all" up front, before any row is inspected.
+  - `data` is the list of observation rows. Per `docs/api/data-formats.md` on the (still-unmerged,
+    see caveat above) `api-improvements` branch, the underlying API's own field names are `areacd`,
+    `areanm`, `period` (ISO 8601 interval, e.g. `"2023-01-01/P1Y"` for a one-year period — a range,
+    not a single date, so don't collapse it to one), `value`, and — **only when
+    `metadata.confidenceIntervals` is `true` for that indicator** — `lci_95`/`uci_95` for the 95%
+    confidence bounds on every row. Confidence-interval presence is an **indicator-level** property,
+    not a per-row one: it isn't something that can vary row to row within one indicator, so don't
+    build any per-row "does this row happen to have CI" check — read `confidenceIntervals` off the
+    indicator's own metadata once and branch on that. Pass the row fields through under their own
+    names rather than inventing new ones (`ci: { lower, upper }` was this doc's placeholder before
+    the field names were confirmed — use the real ones instead) — **re-confirm both the field names
+    and the indicator-level-not-row-level behaviour against a live response during next-steps step
+    1**, since this came from docs on an unmerged branch, not a verified call.
+  - Because CI presence is known from `metadata.confidenceIntervals` before any data is fetched,
+    the "flag non-overlapping intervals" behaviour is simple to gate correctly: when comparing two
+    areas on an indicator where `confidenceIntervals` is `true`, compute and flag overlap; when
+    it's `false`, say so explicitly (e.g. a `notes` string, or omit `lci_95`/`uci_95` from the row
+    type entirely for that indicator) rather than silently saying nothing about it — a bare
+    unmentioned comparison could misread as "measured, no notable difference" rather than "not
+    measured at all." This applies equally under `pivot: "area"` — the pivoted shape doesn't get
+    to drop period/CI just because indicators are now columns instead of an outer key.
 - **`coverage` shape** (needs to be settled here, not invented ad hoc per tool that returns it):
   ```json
   {
