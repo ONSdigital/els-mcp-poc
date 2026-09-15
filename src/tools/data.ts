@@ -312,17 +312,26 @@ function buildDownloadUrl(
   return url.toString();
 }
 
-// Verified against the live indicator catalogue (see build-history.md step 4) — there is no plain
-// "life expectancy" or "median household income" slug, only the sex-split/differently-named
-// equivalents below. Re-check this list if the catalogue changes; a wrong slug here would
-// silently show up as a coverage gap rather than an error, which is correct behaviour for the
-// tool but still worth getting right at the source.
+// One indicator per topic (Population, Economy, Housing, Education and skills, Health and
+// wellbeing x3, Environment, Connectivity) — a deliberate curated set, not an arbitrary sample,
+// confirmed against the live indicator catalogue before landing here (see build-history.md step
+// 4). Re-check this list if the catalogue changes; a wrong slug here would silently show up as a
+// coverage gap rather than an error, which is correct behaviour for the tool but still worth
+// getting right at the source.
 const AREA_HEADLINE_INDICATORS = [
   "population-count",
   "median-age",
   "employment-rate",
-  "healthy-life-expectancy-female",
   "gross-disposable-household-income-per-head",
+  "average-house-price",
+  "housing-affordability-ratio",
+  "level-3-or-above-qualifications",
+  "adult-obesity-prevalence",
+  "wellbeing-satisfaction",
+  "healthy-life-expectancy-female",
+  "healthy-life-expectancy-male",
+  "greenhouse-gas-emissions",
+  "gigabit-capable-broadband",
 ];
 
 export function registerDataTools(server: McpServer): void {

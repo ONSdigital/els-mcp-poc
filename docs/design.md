@@ -285,9 +285,12 @@ between two periods rather than a point value. This one earns being a separate t
 output-framing choice on the same fetch the way the two data-tool merges above were.
 
 **`get_area_profile(area_code, indicators?)`** *(new)* — a curated default set of headline
-indicators (population, median age, employment rate, and a small fixed list beyond that) for one
-area, with an optional override list. Gives "tell me about X" a consistent, cheap answer instead
-of ad hoc guessing across 110+ indicators each time. Response shape mirrors
+indicators for one area, with an optional override list. One indicator per topic — population,
+economy, housing, education and skills, health and wellbeing (three: obesity, life satisfaction,
+healthy life expectancy split by sex), environment, connectivity (`AREA_HEADLINE_INDICATORS` in
+`src/tools/data.ts`) — not an arbitrary sample, each slug confirmed against the live catalogue
+before landing there. Gives "tell me about X" a consistent, cheap answer instead of ad hoc
+guessing across 110+ indicators each time. Response shape mirrors
 `get_indicator_data`'s indicator-grouped shape: each requested indicator gets its own
 `{ metadata: {...}, data: [...] }`.
 
