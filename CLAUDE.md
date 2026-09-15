@@ -286,9 +286,29 @@ this *before* assuming a 500 is the gotcha below; the two produce visually ident
   ("To select 'Other' as the Framework Preset, use `null`."). **If a fresh Vercel project is ever
   created for this repo, don't assume file-naming alone keeps it out of Express zero-config mode —
   `"framework": null` is the actual guarantee.**
-- **This is exactly the gap local testing couldn't have caught.** Driving `api/mcp.ts`'s handler
-  through a plain Node `http.createServer` (what the earlier verification pass did) proves the
-  handler's own logic is correct, but never touches Vercel's actual build/framework-detection
-  pipeline — that only runs on a real deploy. The lesson isn't "test more locally," it's that a
-  real deploy has to happen at least once and be treated as its own verification step, not assumed
-  equivalent to local smoke-testing no matter how thorough the local test is.
+- **Third round: `"framework": null` alone still left the top-level `build` script in
+  `package.json` (`tsc -p tsconfig.json`) running as the auto-detected Build Command, which
+  outputs to `dist/` — not `public/`. Once *any* build command runs, Vercel expects a real Output
+  Directory afterward rather than falling back to serving the repo root**, so the deploy failed
+  again with `Error: No Output Directory named "public" found after the Build completed.` Per
+  [Vercel's "Skip Build Step" docs](https://vercel.com/docs/builds/configure-a-build#skip-build-step),
+  the fix for a project that doesn't need building (this one — Vercel's Function builder compiles
+  `api/mcp.ts` and its `src/` imports independently of any top-level build step) is to explicitly
+  override the Build Command to empty: `"buildCommand": ""` in `vercel.json`. `npm run build`
+  still exists and still works locally (`dist/` is real output for `node dist/...` if ever run
+  that way) — it's just not part of the Vercel deploy path, and never was, regardless of whether
+  it happens to run.
+- **This is exactly the gap local testing couldn't have caught, three separate times in a row.**
+  Driving `api/mcp.ts`'s handler through a plain Node `http.createServer` (what the earlier
+  verification pass did) proves the handler's own logic is correct, but never touches Vercel's
+  actual build/framework-detection/output-directory pipeline — none of that runs outside a real
+  build. **Use `vercel build` (Vercel CLI) to test the actual build pipeline locally before
+  pushing**, rather than relying on a live deploy as the first signal — it runs the same build
+  Vercel would, produces `.vercel/output/` for inspection, and surfaces exactly the kind of error
+  in this section without needing a push/wait/check-dashboard cycle each time. It does need a
+  linked, authenticated project (`vercel link`, then `vercel login` if not already) — set that up
+  once locally and reuse it. (Not run as part of this rewrite's own verification: the interactive
+  OAuth device-flow login `vercel dev`/`vercel build` require wasn't completable in the sandboxed
+  environment this was built in — see the deploy note above. This remains the single biggest
+  reason three straight platform-collision bugs made it all the way to a live deploy before being
+  caught, rather than being caught in one `vercel build` run locally.)
