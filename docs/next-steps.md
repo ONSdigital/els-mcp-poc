@@ -67,15 +67,19 @@ them after any change to the affected code:
 working file for at least one CSV and one XLSX case, with the same params as the JSON call that
 produced it, before trusting a model that says "here's the download link" to a user.
 
-### 4. The Vercel deploy path is still only indirectly verified
+### 4. Re-confirm the Vercel deploy path after the platform-collision fix
 
-CLAUDE.md already flags this: `api/mcp.ts`'s handler has been proven to work when driven directly
-through a plain Node HTTP server, but not through an actual Vercel build/deploy — `vercel dev`
-needed an interactive login that wasn't available while building. After the next GitHub-triggered
-deploy, repeat the `initialize` + `tools/call health` check against the real
+The first real Vercel deploy happened and 500'd — not from anything this document anticipated
+(the env var, the handler signature), but from Vercel's zero-config Express auto-detection
+grabbing `src/server.ts` as a bogus entrypoint (see CLAUDE.md's "Vercel platform gotchas" for the
+full story and the fix: the file is now `src/mcp-server.ts`). That's fixed, but **the fix itself
+hasn't been re-verified against an actual redeploy yet** — do that next: push, let it build, then
+repeat the `initialize` + `tools/call health` check against the real
 `https://<deployed-url>/mcp` endpoint. Remember `ELS_API_BASE_URL` has to be set in the Vercel
-project's environment variables too, not just `.env` locally, or the first deploy 500s at
-startup by design (see `src/config.ts`).
+project's environment variables too, not just `.env` locally, or the deploy 500s at startup for an
+unrelated reason (see `src/config.ts`) — both failure modes produce the same generic
+`FUNCTION_INVOCATION_FAILED` page, so the real Function Logs are the only way to tell them apart
+if this happens again.
 
 ### 5. Test with more than one model/client
 
