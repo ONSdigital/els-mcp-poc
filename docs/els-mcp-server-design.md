@@ -152,7 +152,17 @@ that principle; see below).
 - `pivot` (optional, default `"indicator"`): `"indicator"` groups the response by indicator (the
   default, current shape); `"area"` pivots it to one row per area, one column per indicator —
   this *is* the former `compare_indicators_across_areas`, now just an output-orientation switch on
-  the same fetch rather than a second tool the model has to know to reach for.
+  the same fetch rather than a second tool the model has to know to reach for. **Each cell under
+  `pivot: "area"` is an ARRAY of rows, never a bare row object** — a multivariate indicator (e.g.
+  population-by-age-and-sex, not narrowed by `dimensions`) or a multi-period `time` range both
+  legitimately return more than one row for the same area/indicator, and an implementation that
+  keeps "the row" (singular) per cell will silently keep only the last one seen with no error —
+  this happened for real during the build (real-usage feedback from an LLM client, not a test
+  here caught it: population-by-age-and-sex under `pivot: "area"` returned one arbitrary
+  Male/85+ row per area, dropping the other 53). Always emitting an array — length 1 for the
+  ordinary case — makes that shape impossible to misread as a single clean value; pair it with
+  `indicatorsMeta[slug].isMultivariate`/`.hasTimeseries` (see `metadata` below) so a longer array
+  isn't a surprise.
 - `download_format` (optional: `"csv"` | `"xlsx"`): when set, the response also includes a
   `downloadUrl` for the matching file — this *is* the former `get_download_link`, folded in
   because it always took "the same shape of parameters as `get_indicator_data`" per the original
@@ -162,12 +172,15 @@ that principle; see below).
 - Response shape: `{ coverage: {...}, indicators: { <slug>: { metadata: {...}, data: [...] } },
   downloadUrl? }` (or the area-pivoted equivalent when `pivot: "area"`).
   - `metadata` is **indicator-level, one per indicator, not per row**: `label`/`source`/`unit`/
-    `caveats`/`updated` (when the underlying dataset was last refreshed), and
-    **`confidenceIntervals`** (boolean) — pulled straight through from the metadata endpoint, which
-    already exposes this exact field, not inferred by sampling rows. All of it comes from the
-    already-cached indicator catalogue, not a separate round trip. This answers "where did this
-    number come from," "how current is the dataset as a whole," and "does this indicator carry
-    margins of error at all" up front, before any row is inspected.
+    `caveats`/`updated` (when the underlying dataset was last refreshed), **`confidenceIntervals`**
+    (boolean), **`isMultivariate`** and **`hasTimeseries`** (both booleans) — all pulled straight
+    through from the metadata endpoint, which already exposes these exact fields, not inferred by
+    sampling rows. All of it comes from the already-cached indicator catalogue, not a separate
+    round trip. This answers "where did this number come from," "how current is the dataset as a
+    whole," "does this indicator carry margins of error at all," and "should I expect more than
+    one row per area/period for this indicator" up front, before any row is inspected — the last
+    one exists specifically so `pivot: "area"`'s array-per-cell shape (above) is self-explanatory
+    rather than something the calling model has to infer from row count alone.
   - `data` is the list of observation rows. Per `docs/api/data-formats.md` on the (still-unmerged,
     see caveat above) `api-improvements` branch, the underlying API's own field names are `areacd`,
     `areanm`, `period` (ISO 8601 interval, e.g. `"2023-01-01/P1Y"` for a one-year period — a range,
@@ -189,6 +202,13 @@ that principle; see below).
     unmentioned comparison could misread as "measured, no notable difference" rather than "not
     measured at all." This applies equally under `pivot: "area"` — the pivoted shape doesn't get
     to drop period/CI just because indicators are now columns instead of an outer key.
+  - The comparison only makes sense when there is **exactly one row per area** — two distinct
+    area codes among a *larger* row set (a multivariate indicator, or `time` spanning more than
+    one period) means there's no single well-defined pair of values to compare, and picking "the
+    first row seen per area" would silently compare an arbitrary dimension/period slice rather
+    than a deliberate one — the same class of bug as the `pivot: "area"` one above, and worth
+    guarding against for the same reason. Skip the comparison with an explicit reason
+    (`"N rows returned across 2 areas (expected 1 each)"`) in that case rather than guessing.
 - **`coverage` shape** (needs to be settled here, not invented ad hoc per tool that returns it):
   ```json
   {

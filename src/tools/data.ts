@@ -185,6 +185,13 @@ function indicatorMetadataBlock(meta: Indicator | undefined) {
     caveats: meta.caveats,
     updated: meta.updated,
     confidenceIntervals: meta.confidenceIntervals ?? false,
+    // Both matter for reading `data` (or a pivoted cell) correctly: isMultivariate means more
+    // than one row per area/period is normal (one per dimension combination, e.g. sex x age)
+    // unless `dimensions` narrowed it to exactly one; hasTimeseries means the same for `time`
+    // spanning more than one period. Surfaced explicitly so more-than-one-row-per-area isn't a
+    // surprise — see pivotByArea below for the bug this was added to stop recurring.
+    isMultivariate: meta.isMultivariate ?? false,
+    hasTimeseries: meta.hasTimeseries ?? false,
   };
 }
 
@@ -193,10 +200,26 @@ function indicatorMetadataBlock(meta: Indicator | undefined) {
  * rather than leaving the model to eyeball two numbers against a margin of error. Not attempted
  * for >2 areas (no single well-defined pairwise comparison to highlight) or when the indicator
  * has no CI at all (explicitly noted as ci_available: false instead of silently saying nothing,
- * since silence could misread as "measured, no difference"). */
+ * since silence could misread as "measured, no difference").
+ *
+ * Requires EXACTLY one row per area (rows.length === 2), not just two distinct area codes among
+ * a larger set — a multivariate indicator or a multi-period `time` range can return several rows
+ * per area, and picking "the first matching row" per area in that case would silently compare an
+ * arbitrary dimension/period slice rather than a real, deliberate comparison (the same class of
+ * bug fixed in pivotByArea below — caught via real usage). Comparison is skipped with an explicit
+ * reason in that case rather than guessing which row was meant. */
 function buildComparisonNote(meta: Indicator | undefined, rows: DataRow[]) {
   const areas = [...new Set(rows.map((r) => r.areacd))];
   if (areas.length !== 2) return undefined;
+  if (rows.length !== 2) {
+    return {
+      ci_available: false,
+      note:
+        `${rows.length} rows returned across 2 areas (expected 1 each) — likely a multivariate ` +
+        "indicator or a multi-period time range. Narrow with `dimensions` and/or a single `time` " +
+        "period to get a well-defined two-area comparison.",
+    };
+  }
   if (!meta?.confidenceIntervals) return { ci_available: false };
   const [a, b] = areas as [string, string];
   const rowA = rows.find((r) => r.areacd === a && r.lci_95 !== undefined);
@@ -218,13 +241,23 @@ function buildComparisonNote(meta: Indicator | undefined, rows: DataRow[]) {
   };
 }
 
+/** One area's worth of a single indicator's rows — ALWAYS an array, never collapsed to a bare
+ * object. An indicator can legitimately return more than one row for the same area: a
+ * multivariate indicator (e.g. population-by-age-and-sex) returns one row per dimension
+ * combination unless `dimensions` narrowed it to exactly one, and any indicator returns one row
+ * per period when `time` spans more than a single point. An earlier version of this function
+ * kept only the LAST such row per (area, indicator) — silently dropping the rest with no error
+ * or warning, which read as a complete, correct single value rather than an arbitrary slice of
+ * a bigger result (caught via real usage, not by any test here — see CLAUDE.md). Always
+ * returning an array makes that shape impossible to misread as a scalar; check
+ * indicatorsMeta[slug].isMultivariate/hasTimeseries to know whether >1 row here is expected. */
 function pivotByArea(dataBySlug: DataBySlug) {
   const byArea = new Map<
     string,
     {
       areacd: string;
       areanm: string;
-      indicators: Record<string, Omit<DataRow, "areacd" | "areanm">>;
+      indicators: Record<string, Omit<DataRow, "areacd" | "areanm">[]>;
     }
   >();
   for (const [slug, rows] of Object.entries(dataBySlug)) {
@@ -237,7 +270,7 @@ function pivotByArea(dataBySlug: DataBySlug) {
       const rest = { ...row } as Partial<DataRow>;
       delete rest.areacd;
       delete rest.areanm;
-      entry.indicators[slug] = rest as Omit<DataRow, "areacd" | "areanm">;
+      (entry.indicators[slug] ??= []).push(rest as Omit<DataRow, "areacd" | "areanm">);
     }
   }
   return [...byArea.values()];
@@ -285,9 +318,15 @@ export function registerDataTools(server: McpServer): void {
         "the level to fetch, geo_extent is a parent area code that bounds it.\n\n" +
         'Set pivot="area" to get one row per area with one column per indicator (for ' +
         '"compare these areas across these indicators" questions) instead of the default ' +
-        "indicator-grouped shape. Set download_format to also get a matching CSV/XLSX download " +
-        "URL. Raises an error if the request is too broad: at most one of " +
-        '{indicator/topic, geography, time} may be left unrestricted ("all") at once.',
+        "indicator-grouped shape — each cell is an ARRAY of observation rows, not a single " +
+        "value: usually length 1, but longer whenever the indicator is multivariate (one row " +
+        "per dimension combination, e.g. sex x age — check " +
+        "indicatorsMeta[slug].isMultivariate) or time spans more than one period " +
+        "(indicatorsMeta[slug].hasTimeseries) — narrow with `dimensions` and/or a single `time` " +
+        "value if you want exactly one row per cell. Set download_format to also get a matching " +
+        "CSV/XLSX download URL. Raises an error if the request is too broad: at most one of " +
+        "{indicator/topic, geography, time} may be " +
+        'left unrestricted ("all") at once.',
       inputSchema: {
         indicators: z
           .array(z.string())

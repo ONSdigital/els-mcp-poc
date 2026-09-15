@@ -82,6 +82,29 @@ knowing before touching the affected code, and worth re-checking if the API chan
   cases actually traced to an example prompt (see design doc) rather than a general thesaurus —
   extend it only when a real query surfaces another same-concept/different-word gap.
 
+### Bugs caught by real usage after the initial build, not by curling the API
+
+These weren't sharp edges in the ELS API — they were wrong logic in this codebase, surfaced by an
+LLM client actually using the tools (exactly the discipline next-steps.md step 5 describes, just
+happening informally before step 5 was formally run):
+
+- **`get_indicator_data` with `pivot: "area"` silently returned only the LAST row seen per
+  (area, indicator), dropping the rest with no error or coverage flag.** For a univariate
+  indicator with one row per area this is invisible; for a multivariate one (e.g.
+  `population-by-age-and-sex`, one row per sex × age-band combination) or a multi-period `time`
+  range, it silently kept one arbitrary row (a specific run returned "Male, 85+" for every area)
+  and dropped the other 53+ — reading as a complete, correct single value rather than an
+  arbitrary slice of a bigger result. Fixed by making every cell under `pivot: "area"` **always
+  an array**, never a bare row object (`pivotByArea` in `src/tools/data.ts`), and by adding
+  `isMultivariate`/`hasTimeseries` to the indicator metadata block so a longer array isn't a
+  surprise. `buildComparisonNote` had the identical bug (picking an arbitrary row per area via
+  `.find()` when more than one existed) — fixed by requiring exactly one row per area
+  (`rows.length === 2`, not just 2 distinct area codes) before attempting a CI comparison, and
+  explaining why otherwise. **The general lesson**: any code in this tool layer that assumes "one
+  row per area/indicator" needs to justify that assumption explicitly (single period, non-
+  multivariate, or `dimensions` fully narrowed) — the ELS API does not guarantee it, and silently
+  keeping-the-last-one is worse than an error, because it looks like real data.
+
 ## The ELS API is documented elsewhere — don't re-derive its behaviour here
 
 `docs/api/` in `ONSdigital/explore-local-statistics-app` (same org) is the maintained, verified

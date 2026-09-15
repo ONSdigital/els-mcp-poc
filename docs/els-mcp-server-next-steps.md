@@ -81,6 +81,14 @@ include:
   on the unmerged `api-improvements` branch, not a verified live call, so this is the first real
   check of whether that's accurate. Check this under `pivot: "area"` too, not just the default
   indicator-grouped shape.
+- For `get_indicator_data` with `pivot: "area"`: a case using a **multivariate** indicator (e.g.
+  `population-by-age-and-sex`) without narrowing `dimensions`, and a case with `time` spanning
+  more than one period — confirm every row survives (each cell an array of the expected length,
+  e.g. sex-count × age-band-count for the multivariate case) rather than silently keeping only
+  one. This is not a hypothetical: an earlier version of `pivotByArea` kept only the last row
+  seen per (area, indicator) with no error, caught by real usage rather than by this checklist
+  (see CLAUDE.md's "Bugs caught by real usage"). Any future change to `pivotByArea` or
+  `buildComparisonNote` needs this case re-run, not just the single-row cases above.
 - Confidence intervals need **two** cases, not one, since `confidenceIntervals` is a per-indicator
   property (the metadata endpoint already exposes it as a boolean — not something to infer by
   sampling rows): (a) an indicator with `confidenceIntervals: true`, confirming `lci_95`/`uci_95`

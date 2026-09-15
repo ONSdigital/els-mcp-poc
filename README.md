@@ -36,9 +36,9 @@ configuration file — add:
   "mcpServers": {
     "els-mcp-server": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "http://localhost:8001/mcp"],
-    },
-  },
+      "args": ["-y", "mcp-remote", "http://localhost:8001/mcp"]
+    }
+  }
 }
 ```
 
