@@ -1,6 +1,6 @@
 /**
  * Indicator/metadata tools — discovering and describing indicators. See
- * docs/els-mcp-server-design.md "Metadata".
+ * docs/design.md "Metadata".
  */
 
 import { z } from "zod";

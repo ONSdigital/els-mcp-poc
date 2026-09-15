@@ -1,14 +1,24 @@
-# ELS MCP server — implementation checklist
+# ELS MCP server — build history
 
-**Status: steps 1-4 are done** — the Node/TypeScript scaffold exists, all 14 tools + `health` are
-built and registered, and each has been exercised at least once against the live
-`api-improvements` preview API per the verification discipline in step 4 (see CLAUDE.md's "Sharp
-edges discovered live" for what that verification actually caught). Steps 5-6 (a real end-to-end
-LLM client eval, deployment cutover) are still outstanding.
+**Status: the build described here is complete — this is now a historical record, not a live
+checklist.** Steps 1-4 (repo decision, scaffold, build order, live-API verification) are done: the
+Node/TypeScript server exists, all 14 tools + `health` are built and registered, and each has been
+exercised against the live `api-improvements` preview API (see CLAUDE.md's "Sharp edges discovered
+live" and "Bugs caught by real usage" for what that verification, and several rounds of real LLM
+client testing after the initial build, actually caught). Step 5 (a formal end-to-end LLM client
+eval of the example prompts below) happened informally, in pieces, across those later testing
+rounds rather than as one pass through this exact list — worth actually running as originally
+scoped, still, since it hasn't been done as a single pass end-to-end. Step 6 (deployment cutover)
+is still outstanding.
 
-Practical next steps for building the redesigned MCP server. Companion to
-`els-mcp-server-design.md` (the tool spec and the reasoning behind it) — this document is the
-"what to actually do" checklist; that one is the "what to build and why."
+**For what to do now that the build exists, see `docs/next-steps.md`** — testing, refinement, and
+improvement guidance, written after this build was done rather than before it. This document is
+kept as a record of what the original build actually did, in what order, and why — useful history,
+not a task list to keep working through.
+
+Practical next steps for building the redesigned MCP server. Companion to `design.md` (the tool
+spec and the reasoning behind it) — this document was the "what to actually do" checklist; that
+one is the "what to build and why."
 
 ## 1. Repo decision
 
@@ -34,9 +44,9 @@ re-doing the Vercel project setup from scratch.
   `api-improvements` (`https://local-statistics-git-api-improvements-ons-visual.vercel.app/api/v1`
   — see CLAUDE.md), which moves or disappears with that branch; swapping to the production URL
   once it merges should be a one-line config change, not a code edit.
-- `els-mcp-server-design.md` and `els-mcp-server-next-steps.md` already live in this repo under
-  `docs/` — no copying needed. Once `docs/api/` is actually merged in
-  `explore-local-statistics-app`, update the links in the design doc and remove its "not yet
+- `design.md` and this checklist already live in this repo under `docs/` — no copying needed.
+  Once `docs/api/` is actually merged in `explore-local-statistics-app`, update the links in the
+  design doc and remove its "not yet
   merged" caveat.
 
 ## 3. Build order

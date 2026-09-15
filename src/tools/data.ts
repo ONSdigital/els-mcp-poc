@@ -1,7 +1,7 @@
 /**
  * Data tools — the core get_indicator_data tool plus the compound tools built on it
  * (rank_areas, rank_areas_by_change, get_area_profile) and health. See
- * docs/els-mcp-server-design.md "Data" for the full reasoning, including the coverage shape,
+ * docs/design.md "Data" for the full reasoning, including the coverage shape,
  * the pivot/download_format merge of what were originally two extra tools, and the
  * per-indicator (not per-row) confidenceIntervals handling.
  */
@@ -69,7 +69,7 @@ async function fetchDataRows(params: {
 
   // KNOWN LIVE-API LIMITATION, not a bug here: filtering by more than one dimension_{code} at
   // once (e.g. sex AND age together) reproducibly returns zero rows even via a raw curl against
-  // the API directly, while each filter works fine alone. Confirmed during next-steps.md step 4
+  // the API directly, while each filter works fine alone. Confirmed during build-history.md step 4
   // verification — not something this tool layer can absorb, since the underlying data endpoint
   // itself is doing this. Worth flagging upstream; until then, callers combining >1 dimension
   // filter will see an empty result that looks like "no data" rather than "API can't do this
@@ -312,7 +312,7 @@ function buildDownloadUrl(
   return url.toString();
 }
 
-// Verified against the live indicator catalogue (see next-steps.md step 4) — there is no plain
+// Verified against the live indicator catalogue (see build-history.md step 4) — there is no plain
 // "life expectancy" or "median household income" slug, only the sex-split/differently-named
 // equivalents below. Re-check this list if the catalogue changes; a wrong slug here would
 // silently show up as a coverage gap rather than an error, which is correct behaviour for the

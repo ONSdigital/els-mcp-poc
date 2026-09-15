@@ -7,10 +7,11 @@ proof-of-concept that used to occupy this repo is gone from the working tree (st
 from git history/earlier commits on this branch's history if old behaviour ever needs
 cross-checking). This file now describes the actual code, not a plan for it — **keep it that way:
 update this file whenever it diverges from reality**, the same discipline that applied while it
-was still aspirational. Full reasoning behind the design lives in `docs/els-mcp-server-design.md`
-(tool spec, gap analysis, why each decision was made) and `docs/els-mcp-server-next-steps.md`
-(build order, verification checklist, both now executed) — this file doesn't repeat their content,
-only the parts relevant to writing code day to day.
+was still aspirational. Full reasoning behind the design lives in `docs/design.md` (tool spec, gap
+analysis, why each decision was made); `docs/build-history.md` is the executed build checklist
+(historical record, not a live task list); **`docs/next-steps.md` is the current forward-looking
+doc** — testing, refinement, and improvement guidance for the tools as they exist now. This file
+doesn't repeat their content, only the parts relevant to writing code day to day.
 
 ## Project overview
 
@@ -52,8 +53,8 @@ Vercel.
     what were originally proposed as two separate tools; see design doc), `rank_areas`,
     `rank_areas_by_change`, `get_area_profile`, `health`.
 - `src/types.ts` — shared domain types (`Indicator`, `GeoLevel`, `DataRow`, `Coverage`), confirmed
-  against live API responses during the build (see next-steps.md step 4 — every field name here
-  was checked against a real response, not just the docs).
+  against live API responses during the build (see build-history.md step 4 — every field name
+  here was checked against a real response, not just the docs).
 - `src/tool-helpers.ts` — `jsonResult`/`errorResult`, wrapping a tool's return value as MCP
   `CallToolResult` content (JSON-serialised text), used by every tool.
 
@@ -85,8 +86,8 @@ knowing before touching the affected code, and worth re-checking if the API chan
 ### Bugs caught by real usage after the initial build, not by curling the API
 
 These weren't sharp edges in the ELS API — they were wrong logic in this codebase, surfaced by an
-LLM client actually using the tools (exactly the discipline next-steps.md step 5 describes, just
-happening informally before step 5 was formally run):
+LLM client actually using the tools (exactly the discipline build-history.md step 5 describes,
+just happening informally before step 5 was formally run):
 
 - **`get_indicator_data` with `pivot: "area"` silently returned only the LAST row seen per
   (area, indicator), dropping the rest with no error or coverage flag.** For a univariate
@@ -169,7 +170,7 @@ design (not just the underlying HTTP API's):
   `N09`, meaning it covers Northern Ireland only nationally, not at local-authority level —
   confirmed live, and exactly the kind of gap `get_indicator_data`'s `coverage.missing` is built to
   catch). This is *why* every data-returning tool attaches a `coverage` summary rather than just
-  passing through whatever rows came back — see `docs/els-mcp-server-design.md`.
+  passing through whatever rows came back — see `docs/design.md`.
 - **GSS codes are case-insensitive on every endpoint** (confirmed live: lower-case input,
   upper-case `areacd` in the response) and the geography-level vocabulary differs by route (a
   5-level statistical set vs. a wider navigation set vs. the boundary map's own set) — this tool
@@ -177,7 +178,7 @@ design (not just the underlying HTTP API's):
   indicator data's own granularity, via `list_geo_levels`) and normalises case internally
   (`upperGss`), so no tool description needs to explain either quirk to the calling model.
 
-## Design principles (see `docs/els-mcp-server-design.md` for the full reasoning)
+## Design principles (see `docs/design.md` for the full reasoning)
 
 - **Task-shaped tools, not a REST mirror.** Fewer tools with parameters beats more tools with
   overlapping purposes — tool *selection* is itself a place an LLM goes wrong. This is why
@@ -236,10 +237,12 @@ a `coverage` field, one case with real incomplete coverage to confirm the gap is
 All 14 tools + `health` have been exercised this way at least once against the live preview API as
 of this rewrite — re-run this discipline for any new tool or any change to an existing one.
 
-Once a real LLM client is wired up, re-run the example prompts in
-`docs/els-mcp-server-next-steps.md` end-to-end, not just as isolated tool calls — checking both
-which tool gets selected and whether the final answer is right catches problems neither a
-docstring review nor a per-tool test will. This hasn't been done yet as of this rewrite landing.
+Running real LLM clients against a connected server, not just isolated tool calls, has already
+caught problems no docstring review or per-tool test did — every entry in "Bugs caught by real
+usage" above came from exactly that, in pieces, across several rounds of testing rather than one
+formal pass. The example prompts in `docs/build-history.md` (§5) haven't been run as a single
+end-to-end pass yet, though — see `docs/next-steps.md` for that and the rest of the current testing
+plan.
 
 **`api/mcp.ts` itself has only been smoke-tested indirectly, not through an actual Vercel
 deploy.** Deployment for this project is via Vercel's GitHub integration (push/merge triggers a

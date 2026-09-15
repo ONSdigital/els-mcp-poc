@@ -1,6 +1,6 @@
 /**
  * Shared domain types, confirmed against the live ELS API preview
- * (see docs/els-mcp-server-design.md and next-steps.md for the verification trail).
+ * (see docs/design.md and docs/build-history.md for the verification trail).
  */
 
 /** One entry from /metadata/indicators (and the shape of /metadata/indicators/{slug}). */

@@ -1,7 +1,7 @@
 /**
  * Single HTTP client wrapper around the ELS API. Every tool goes through this module rather
  * than calling `fetch` directly — this is where the "absorb the sharp edges" design principle
- * (see docs/els-mcp-server-design.md) actually gets implemented, once:
+ * (see docs/design.md) actually gets implemented, once:
  *
  * - base URL (ELS_API_BASE_URL)
  * - GSS-code upper-casing (the API is case-insensitive, but normalising here means no tool has

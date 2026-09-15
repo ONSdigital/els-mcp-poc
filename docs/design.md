@@ -1,5 +1,14 @@
 # ELS MCP server — design notes
 
+**Status: implemented.** This is the design record the TypeScript rewrite (`src/`, `api/`) was
+built from — tool decisions, the reasoning behind each one, and the gaps traced against the old
+Python proof-of-concept that motivated them. It's kept as architectural reference now that the
+build exists, not a forward-looking plan: if you change how a tool works, **update this file so it
+still matches `src/` — the same discipline CLAUDE.md follows for its own content, and for the same
+reason** (a design doc that quietly drifts from the code is worse than no design doc). For what's
+left to do — testing, refinement, improvement — see `docs/next-steps.md`; for a record of what the
+original build actually did and verified, see `docs/build-history.md`.
+
 Distilled from a design conversation held alongside a documentation/correctness pass on the
 Explore Local Statistics (ELS) API itself. This is **not** a copy of that API documentation —
 it's the MCP-layer-specific knowledge that doesn't exist anywhere else: tool design decisions,

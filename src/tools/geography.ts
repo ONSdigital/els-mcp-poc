@@ -1,6 +1,6 @@
 /**
  * Geography tools — resolving place names/postcodes/coordinates to GSS area codes, area
- * detail/relations, and the geo-level vocabulary. See docs/els-mcp-server-design.md "Geography".
+ * detail/relations, and the geo-level vocabulary. See docs/design.md "Geography".
  */
 
 import { z } from "zod";
