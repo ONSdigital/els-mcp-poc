@@ -342,7 +342,9 @@ export function registerDataTools(server: McpServer): void {
       description:
         "Fetch observation values for one or many indicators across one or many areas — the " +
         "general-purpose data tool, covering everything from a single indicator/single area " +
-        "lookup to bulk pulls. Every response includes a `coverage` block stating what was " +
+        "lookup to bulk pulls. Also the way to get a CSV/XLSX download link for the user, rather " +
+        "than just inline data — set download_format (see below); no separate tool for this. " +
+        "Every response includes a `coverage` block stating what was " +
         "requested vs. what actually came back (including *why* a gap exists when known, e.g. " +
         "an indicator not covering a requested country) — always check it rather than assuming " +
         "an empty or partial result means something went wrong.\n\n" +
@@ -369,8 +371,14 @@ export function registerDataTools(server: McpServer): void {
         "per dimension combination, e.g. sex x age — check " +
         "indicatorsMeta[slug].isMultivariate) or time spans more than one period " +
         "(indicatorsMeta[slug].hasTimeseries) — narrow with `dimensions` and/or a single `time` " +
-        "value if you want exactly one row per cell. Set download_format to also get a matching " +
-        "CSV/XLSX download URL. Raises an error if the request is too broad: at most one of " +
+        "value if you want exactly one row per cell.\n\n" +
+        "DOWNLOAD LINK: set download_format='csv' or 'xlsx' when the user wants a file to " +
+        "download or share ('can you give me this as a spreadsheet/CSV'), not just an inline " +
+        "figure or table — the response then also includes a top-level `downloadUrl`, built from " +
+        "the same indicators/area_codes/geo_type/time/etc. params as the rest of the call. Works " +
+        "with a minimal call too: `indicators` alone (no area_codes/geo_type needed) is enough " +
+        "for a link covering that indicator everywhere it's reported.\n\n" +
+        "Raises an error if the request is too broad: at most one of " +
         "{indicator/topic, geography, time} may be " +
         'left unrestricted ("all") at once.',
       inputSchema: {
@@ -420,7 +428,11 @@ export function registerDataTools(server: McpServer): void {
         download_format: z
           .enum(["csv", "xlsx"])
           .optional()
-          .describe("Also return a matching download URL."),
+          .describe(
+            "Set to 'csv' or 'xlsx' when the user wants a file to download or share, rather " +
+              "than inline data — returns a direct download link (`downloadUrl`) alongside the " +
+              "normal response, covering the same query.",
+          ),
       },
     },
     async ({
