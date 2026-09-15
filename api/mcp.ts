@@ -4,14 +4,14 @@
  * old api/index.py) — this handler doesn't care what path Vercel invoked it at, it always
  * treats the request as an MCP call.
  *
- * Stateless transport, one server+transport per invocation — see src/server.ts's factory note.
+ * Stateless transport, one server+transport per invocation — see src/mcp-server.ts's factory note.
  * Vercel serverless functions use the same (req, res) signature as Node's http module, so this
  * mirrors src/dev-server.ts almost exactly.
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { createServer } from "../src/server.js";
+import { createServer } from "../src/mcp-server.js";
 
 export default async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (req.method !== "POST") {

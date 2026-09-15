@@ -23,7 +23,7 @@ Vercel.
 
 ## Current state: TypeScript/Node server
 
-- `src/server.ts` exports `createServer()`, a **factory** (not a shared singleton) that builds one
+- `src/mcp-server.ts` exports `createServer()`, a **factory** (not a shared singleton) that builds one
   `McpServer` with every tool registered. It's a factory because the Streamable HTTP transport
   runs in **stateless mode** everywhere (`sessionIdGenerator: undefined`) — both `src/dev-server.ts`
   (local dev, plain Node `http.createServer`, port 8001) and `api/mcp.ts` (the Vercel Node
@@ -244,20 +244,71 @@ formal pass. The example prompts in `docs/build-history.md` (§5) haven't been r
 end-to-end pass yet, though — see `docs/next-steps.md` for that and the rest of the current testing
 plan.
 
-**`api/mcp.ts` itself has only been smoke-tested indirectly, not through an actual Vercel
-deploy.** Deployment for this project is via Vercel's GitHub integration (push/merge triggers a
-build), not the `vercel` CLI, so the CLI's own `vercel dev`/`vercel deploy` were never the
-intended path here anyway — noted below only so the *coverage gap* is clear, not as a suggestion
-to use the CLI. What *has* been verified: `api/mcp.ts`'s exported `handler` (not
-`dev-server.ts`'s separate implementation) executes correctly end-to-end — including the
-`../src/server.js` cross-directory import — when driven directly through a plain Node
-`http.createServer` in the same way Vercel's Node.js Serverless Function runtime would invoke it.
-What that *doesn't* confirm: that Vercel's own build step resolves the `api/` → `../src/` import
-the same way when building the function for a real deploy, and that the project's runtime config
-actually selects the classic `(req, res)` Node handler signature rather than a Web-standard one
-(no `export const config = { runtime: "edge" }` is set, so it shouldn't — Edge Runtime requires
-opting in — but this hasn't been confirmed against a real deploy). **After the first GitHub-triggered
-deploy, repeat the `initialize`/`tools/call health` checks against `https://<the deployed
-url>/mcp` before treating the deployment cutover (next-steps step 6) as done** — remember
-`ELS_API_BASE_URL` must also be set in the Vercel project's environment variables, not just
-locally, or that first deploy 500s.
+**The first real Vercel deploy happened and hit a genuine platform-collision bug, now fixed** —
+see "Vercel platform gotchas" below. `api/mcp.ts`'s handler itself was already proven correct
+(cross-directory import, stateless transport, classic `(req, res)` signature — all confirmed by
+driving it through a plain Node `http.createServer` before the first real deploy), so that part of
+the earlier open question is resolved: Vercel's Node.js builder does use the classic Node handler
+signature here, as expected (no `export const config = { runtime: "edge" }` is set). **Still worth
+doing after any future deploy**: repeat the `initialize`/`tools/call health` checks against
+`https://<the deployed url>/mcp` — this hasn't been re-confirmed since the fix below landed.
+Remember `ELS_API_BASE_URL` must be set in the Vercel project's environment variables too, not
+just locally, or the deploy 500s at startup for an unrelated reason (see `src/config.ts`) — check
+this *before* assuming a 500 is the gotcha below; the two produce visually identical
+`FUNCTION_INVOCATION_FAILED` pages and have to be told apart via the actual Function Logs.
+
+### Vercel platform gotchas found deploying this (not an ELS API quirk, not a logic bug)
+
+- **Vercel's zero-configuration Express detection silently hijacked this deployment, and it has
+  nothing to do with this project actually using Express.** The first real deploy 500'd with
+  `FUNCTION_INVOCATION_FAILED` / "Invalid export found in module /var/task/src/server.js. The
+  default export must be a function or server." — Vercel's Node.js builder scans for a file at
+  `app`/`index`/`server` (any of `.js`/`.ts`/`.cjs`/`.mjs`/`.cts`/`.mts`) at the project root **or
+  under `src/`**, and if found alongside `express` anywhere in the dependency tree, treats *that
+  file* as a zero-config Express app entrypoint — bypassing `api/` and `vercel.json` entirely.
+  This project never imports `express` directly, but `@modelcontextprotocol/sdk` depends on it
+  transitively, which was apparently enough to satisfy the detection once a file at exactly
+  `src/server.ts` also existed (the old name of what's now `src/mcp-server.ts`) exporting
+  something function-shaped (`createServer`). Confirmed via
+  [Vercel's own Express docs](https://vercel.com/docs/frameworks/backend/express) ("Exporting the
+  Express application" — the exact six trigger paths), not guessed.
+- **Renaming the file away from the trigger path (`src/server.ts` → `src/mcp-server.ts`) was
+  necessary but not sufficient.** The next deploy failed differently: `Error: No entrypoint found
+  in "/vercel/path0". Set package.json "main" to a server file, or add one of: app.js, ... server.ts,
+  ...` — with the accidental trigger file gone, Vercel had *nowhere* to fall back to, because the
+  project had already been detected (and the detection appears sticky at the project level, not
+  re-evaluated fresh from a clean slate on every deploy) as a zero-config Node/Express app rather
+  than an "Other" project using `api/` + `vercel.json`. **The actual fix: `"framework": null` in
+  `vercel.json`**, which explicitly overrides whatever Framework Preset the dashboard has settled
+  on and forces "Other" — `api/` served as Functions, nothing else auto-detected. This is a
+  committed, version-controlled fix (not a manual dashboard toggle you'd have to remember to
+  redo), confirmed via [Vercel's vercel.json reference](https://vercel.com/docs/project-configuration/vercel-json#framework)
+  ("To select 'Other' as the Framework Preset, use `null`."). **If a fresh Vercel project is ever
+  created for this repo, don't assume file-naming alone keeps it out of Express zero-config mode —
+  `"framework": null` is the actual guarantee.**
+- **Third round: `"framework": null` alone still left the top-level `build` script in
+  `package.json` (`tsc -p tsconfig.json`) running as the auto-detected Build Command, which
+  outputs to `dist/` — not `public/`. Once *any* build command runs, Vercel expects a real Output
+  Directory afterward rather than falling back to serving the repo root**, so the deploy failed
+  again with `Error: No Output Directory named "public" found after the Build completed.` Per
+  [Vercel's "Skip Build Step" docs](https://vercel.com/docs/builds/configure-a-build#skip-build-step),
+  the fix for a project that doesn't need building (this one — Vercel's Function builder compiles
+  `api/mcp.ts` and its `src/` imports independently of any top-level build step) is to explicitly
+  override the Build Command to empty: `"buildCommand": ""` in `vercel.json`. `npm run build`
+  still exists and still works locally (`dist/` is real output for `node dist/...` if ever run
+  that way) — it's just not part of the Vercel deploy path, and never was, regardless of whether
+  it happens to run.
+- **This is exactly the gap local testing couldn't have caught, three separate times in a row.**
+  Driving `api/mcp.ts`'s handler through a plain Node `http.createServer` (what the earlier
+  verification pass did) proves the handler's own logic is correct, but never touches Vercel's
+  actual build/framework-detection/output-directory pipeline — none of that runs outside a real
+  build. **Use `vercel build` (Vercel CLI) to test the actual build pipeline locally before
+  pushing**, rather than relying on a live deploy as the first signal — it runs the same build
+  Vercel would, produces `.vercel/output/` for inspection, and surfaces exactly the kind of error
+  in this section without needing a push/wait/check-dashboard cycle each time. It does need a
+  linked, authenticated project (`vercel link`, then `vercel login` if not already) — set that up
+  once locally and reuse it. (Not run as part of this rewrite's own verification: the interactive
+  OAuth device-flow login `vercel dev`/`vercel build` require wasn't completable in the sandboxed
+  environment this was built in — see the deploy note above. This remains the single biggest
+  reason three straight platform-collision bugs made it all the way to a live deploy before being
+  caught, rather than being caught in one `vercel build` run locally.)

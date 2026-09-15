@@ -716,7 +716,7 @@ export function registerDataTools(server: McpServer): void {
         .then(() => true)
         .catch(() => false);
       // Hardcoded, not derived — the SDK doesn't expose registered-tool count publicly. Keep in
-      // sync with server.ts's registrations by hand (7 geography + 3 metadata + 4 data + health
+      // sync with mcp-server.ts's registrations by hand (7 geography + 3 metadata + 4 data + health
       // = 15); the Python version had this exact off-by-one bug once (see git history: "fix
       // tool_count in health check").
       return jsonResult({ status: "ok", els_api_reachable: elsApiReachable, tool_count: 15 });

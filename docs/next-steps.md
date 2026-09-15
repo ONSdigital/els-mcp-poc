@@ -67,15 +67,32 @@ them after any change to the affected code:
 working file for at least one CSV and one XLSX case, with the same params as the JSON call that
 produced it, before trusting a model that says "here's the download link" to a user.
 
-### 4. The Vercel deploy path is still only indirectly verified
+### 4. Re-confirm the Vercel deploy path after three platform-collision fixes
 
-CLAUDE.md already flags this: `api/mcp.ts`'s handler has been proven to work when driven directly
-through a plain Node HTTP server, but not through an actual Vercel build/deploy — `vercel dev`
-needed an interactive login that wasn't available while building. After the next GitHub-triggered
-deploy, repeat the `initialize` + `tools/call health` check against the real
-`https://<deployed-url>/mcp` endpoint. Remember `ELS_API_BASE_URL` has to be set in the Vercel
-project's environment variables too, not just `.env` locally, or the first deploy 500s at
-startup by design (see `src/config.ts`).
+The first three real Vercel deploys all failed, none for anything this document originally
+anticipated (the env var, the handler signature) — all three from Vercel's zero-config Express/
+Node detection and build-output assumptions colliding with this project's layout, not from
+anything wrong in the MCP server's own code: `src/server.ts` got grabbed as a bogus Express
+entrypoint (renamed to `src/mcp-server.ts`), then the project turned out to already be detected as
+a zero-config Node/Express app at the project level regardless (`"framework": null` added to
+`vercel.json`), then the leftover `build` script in `package.json` triggered Vercel's "expects an
+Output Directory after any build command runs" behavior (`"buildCommand": ""` added). See
+CLAUDE.md's "Vercel platform gotchas" for the full story of all three. All three are fixed, but
+**none has been re-verified against an actual successful deploy yet** — do that next: push, let it
+build, then repeat the `initialize` + `tools/call health` check against the real
+`https://<deployed-url>/mcp` endpoint.
+
+**Before the next push, run `vercel build` locally first** (Vercel CLI, needs `vercel login` +
+`vercel link` once) — it runs the real build pipeline and would have caught all three of the above
+without a push/wait/check-dashboard cycle each time. This wasn't done during the original build
+because the CLI's interactive OAuth login wasn't completable in that sandboxed environment; it's
+the single biggest reason three straight deploy-only bugs made it this far before being caught.
+
+Remember `ELS_API_BASE_URL` has to be set in the Vercel
+project's environment variables too, not just `.env` locally, or the deploy 500s at startup for an
+unrelated reason (see `src/config.ts`) — both failure modes produce the same generic
+`FUNCTION_INVOCATION_FAILED` page, so the real Function Logs are the only way to tell them apart
+if this happens again.
 
 ### 5. Test with more than one model/client
 

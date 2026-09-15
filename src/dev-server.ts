@@ -4,13 +4,13 @@
  * .vscode/mcp.json's "els-mcp-test" entry, which points at this port).
  *
  * Stateless mode (sessionIdGenerator: undefined) on purpose, matching api/mcp.ts — see
- * server.ts's factory-not-singleton note. A fresh server + transport per request means local
+ * mcp-server.ts's factory-not-singleton note. A fresh server + transport per request means local
  * dev behaves the same way Vercel's serverless functions do, rather than diverging from it.
  */
 
 import { createServer as createHttpServer } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { createServer } from "./server.js";
+import { createServer } from "./mcp-server.js";
 
 const PORT = Number(process.env.PORT ?? 8001);
 
