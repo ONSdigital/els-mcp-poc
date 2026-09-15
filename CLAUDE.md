@@ -104,6 +104,25 @@ happening informally before step 5 was formally run):
   row per area/indicator" needs to justify that assumption explicitly (single period, non-
   multivariate, or `dimensions` fully narrowed) — the ELS API does not guarantee it, and silently
   keeping-the-last-one is worse than an error, because it looks like real data.
+- **`get_indicator_data`'s response never told a calling model to actually use `indicatorsMeta`,
+  and under `pivot: "area"` the label lived nowhere near the value.** A second LLM client, asked
+  to review the tool's output quality (not correctness this time), reported it wasn't citing
+  indicator names or sources — its own diagnosis, confirmed correct: the tool description gave
+  `coverage` an explicit imperative ("always check it...") but said nothing about `indicatorsMeta`
+  at all, so nothing prompted a model to look there; and under `pivot: "area"`, each cell was
+  keyed only by slug (`"population-density": [...]`), with the human-readable `label` living
+  solely in a separate top-level block the model had to think to cross-reference. Fixed two ways,
+  matching the fix's own priority order: (1) the description now has an explicit ATTRIBUTION
+  paragraph, in the same imperative style as the `coverage` instruction, stating that a response
+  must be cited by `label` (never the slug) with source/date; (2) under `pivot: "area"`, each
+  cell is now `{ label, rows }` — `label` duplicated right at the point of use — rather than a
+  bare array a model has to leave to go find a name for. Only `label` is duplicated, not the
+  full metadata (source/caveats stay in the shared `indicatorsMeta` alone), balancing "cheap
+  enough to repeat per cell" against payload size. **The general lesson, alongside the one
+  above**: a field existing somewhere in the payload is not the same as a model knowing to use
+  it — `coverage` only works because the description says so explicitly and the LLM being tested
+  read that instruction and followed it; anything without an equivalent instruction (or without
+  being placed at the actual point of use) got skipped, not out of the model's own error.
 
 ## The ELS API is documented elsewhere — don't re-derive its behaviour here
 

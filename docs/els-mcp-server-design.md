@@ -153,22 +153,41 @@ that principle; see below).
   default, current shape); `"area"` pivots it to one row per area, one column per indicator —
   this *is* the former `compare_indicators_across_areas`, now just an output-orientation switch on
   the same fetch rather than a second tool the model has to know to reach for. **Each cell under
-  `pivot: "area"` is an ARRAY of rows, never a bare row object** — a multivariate indicator (e.g.
-  population-by-age-and-sex, not narrowed by `dimensions`) or a multi-period `time` range both
-  legitimately return more than one row for the same area/indicator, and an implementation that
-  keeps "the row" (singular) per cell will silently keep only the last one seen with no error —
-  this happened for real during the build (real-usage feedback from an LLM client, not a test
-  here caught it: population-by-age-and-sex under `pivot: "area"` returned one arbitrary
-  Male/85+ row per area, dropping the other 53). Always emitting an array — length 1 for the
-  ordinary case — makes that shape impossible to misread as a single clean value; pair it with
-  `indicatorsMeta[slug].isMultivariate`/`.hasTimeseries` (see `metadata` below) so a longer array
-  isn't a surprise.
+  `pivot: "area"` is `{ label, rows }`, not a bare row or a bare array** —
+  - `rows` is an ARRAY, never a single row object: a multivariate indicator (e.g.
+    population-by-age-and-sex, not narrowed by `dimensions`) or a multi-period `time` range both
+    legitimately return more than one row for the same area/indicator, and an implementation that
+    keeps "the row" (singular) per cell will silently keep only the last one seen with no error —
+    this happened for real during the build (real-usage feedback from an LLM client, not a test
+    here caught it: population-by-age-and-sex under `pivot: "area"` returned one arbitrary
+    Male/85+ row per area, dropping the other 53). Always emitting an array — length 1 for the
+    ordinary case — makes that shape impossible to misread as a single clean value; pair it with
+    `indicatorsMeta[slug].isMultivariate`/`.hasTimeseries` (see `metadata` below) so a longer array
+    isn't a surprise.
+  - `label` is that indicator's human-readable name, duplicated at the cell **on top of** living
+    in the shared top-level `indicatorsMeta` (below) — a second real-usage finding, distinct from
+    the array one above: an agent given only slug-keyed cells (`"population-density": {...}`) and
+    a separate `indicatorsMeta` block reported figures by slug ("population-density: 1555")
+    rather than by label ("Population density: 1,555 people per km²"), because nothing at the
+    point of consumption prompted it to look elsewhere for the citable name. `label` is cheap
+    enough to repeat per cell; the rest of `metadata` (source/caveats/etc.) is not, and stays
+    exclusively in `indicatorsMeta` — see the ATTRIBUTION note below.
 - `download_format` (optional: `"csv"` | `"xlsx"`): when set, the response also includes a
   `downloadUrl` for the matching file — this *is* the former `get_download_link`, folded in
   because it always took "the same shape of parameters as `get_indicator_data`" per the original
   spec, so there was nothing left for a separate tool to do.
 - Always calls the multi-indicator endpoint internally regardless of how many `indicators` were
   given — the single/multi split is invisible at this layer.
+- **ATTRIBUTION is an explicit, imperative instruction in the tool description, not just a field
+  that happens to exist** — the same pattern `coverage` already uses ("always check it..."), for
+  the same reason: real usage showed that a field existing in the payload isn't enough on its own.
+  An LLM client testing this tool made the call correctly, read `coverage` as instructed, but
+  never looked at `indicatorsMeta` and reported figures by raw slug rather than by the indicator's
+  actual name — its own diagnosis was that the docstring gave it a reason to check `coverage` and
+  no equivalent reason to check `indicatorsMeta`. Fix: the description now states outright that
+  every response carries `label`/`source`/`updated` per indicator and that a calling model must
+  cite the `label` (never the slug) and the source/date when reporting a figure — worded as a
+  requirement, not a passive mention that the field exists.
 - Response shape: `{ coverage: {...}, indicators: { <slug>: { metadata: {...}, data: [...] } },
   downloadUrl? }` (or the area-pivoted equivalent when `pivot: "area"`).
   - `metadata` is **indicator-level, one per indicator, not per row**: `label`/`source`/`unit`/

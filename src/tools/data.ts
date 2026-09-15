@@ -241,23 +241,35 @@ function buildComparisonNote(meta: Indicator | undefined, rows: DataRow[]) {
   };
 }
 
-/** One area's worth of a single indicator's rows — ALWAYS an array, never collapsed to a bare
- * object. An indicator can legitimately return more than one row for the same area: a
- * multivariate indicator (e.g. population-by-age-and-sex) returns one row per dimension
- * combination unless `dimensions` narrowed it to exactly one, and any indicator returns one row
- * per period when `time` spans more than a single point. An earlier version of this function
- * kept only the LAST such row per (area, indicator) — silently dropping the rest with no error
- * or warning, which read as a complete, correct single value rather than an arbitrary slice of
- * a bigger result (caught via real usage, not by any test here — see CLAUDE.md). Always
- * returning an array makes that shape impossible to misread as a scalar; check
- * indicatorsMeta[slug].isMultivariate/hasTimeseries to know whether >1 row here is expected. */
-function pivotByArea(dataBySlug: DataBySlug) {
+/** One area's worth of a single indicator: `{ label, rows }`, `rows` ALWAYS an array, never
+ * collapsed to a bare object. An indicator can legitimately return more than one row for the
+ * same area: a multivariate indicator (e.g. population-by-age-and-sex) returns one row per
+ * dimension combination unless `dimensions` narrowed it to exactly one, and any indicator
+ * returns one row per period when `time` spans more than a single point. An earlier version of
+ * this function kept only the LAST such row per (area, indicator) — silently dropping the rest
+ * with no error or warning, which read as a complete, correct single value rather than an
+ * arbitrary slice of a bigger result (caught via real usage, not by any test here — see
+ * CLAUDE.md). Always returning an array makes that shape impossible to misread as a scalar;
+ * check indicatorsMeta[slug].isMultivariate/hasTimeseries to know whether >1 row here is
+ * expected.
+ *
+ * `label` is duplicated here (not just in the shared top-level `indicatorsMeta`) because real
+ * usage caught a second, separate gap: an indicator here is keyed by its `slug`
+ * (e.g. "population-density"), and a slug is not the same thing as a citable name — an agent
+ * reporting "population-density: 1555" instead of "Population density: 1,555 people per km²"
+ * reads as it skipped attribution rather than that it never saw the label. Only `label` is
+ * duplicated, not the full metadata (source/caveats/etc. stay in indicatorsMeta alone) — cheap
+ * enough to repeat per cell, unlike the larger fields. */
+function pivotByArea(dataBySlug: DataBySlug, labelBySlug: Map<string, string | undefined>) {
   const byArea = new Map<
     string,
     {
       areacd: string;
       areanm: string;
-      indicators: Record<string, Omit<DataRow, "areacd" | "areanm">[]>;
+      indicators: Record<
+        string,
+        { label: string | undefined; rows: Omit<DataRow, "areacd" | "areanm">[] }
+      >;
     }
   >();
   for (const [slug, rows] of Object.entries(dataBySlug)) {
@@ -270,7 +282,8 @@ function pivotByArea(dataBySlug: DataBySlug) {
       const rest = { ...row } as Partial<DataRow>;
       delete rest.areacd;
       delete rest.areanm;
-      (entry.indicators[slug] ??= []).push(rest as Omit<DataRow, "areacd" | "areanm">);
+      const cell = (entry.indicators[slug] ??= { label: labelBySlug.get(slug), rows: [] });
+      cell.rows.push(rest as Omit<DataRow, "areacd" | "areanm">);
     }
   }
   return [...byArea.values()];
@@ -312,14 +325,23 @@ export function registerDataTools(server: McpServer): void {
         "requested vs. what actually came back (including *why* a gap exists when known, e.g. " +
         "an indicator not covering a requested country) — always check it rather than assuming " +
         "an empty or partial result means something went wrong.\n\n" +
+        "ATTRIBUTION: every response includes each indicator's human-readable `label`, `source`, " +
+        "and `updated` date (in `indicators[slug].metadata` by default, or in the top-level " +
+        "`indicatorsMeta[slug]` — plus inline per-cell under pivot='area', see below). Always " +
+        "refer to an indicator by its `label`, never its raw slug — say 'Population density: " +
+        "1,555 people per km²', not 'population-density: 1555' — and cite the source/date when " +
+        "reporting a figure, not just the bare value. This is not optional polish, it's the " +
+        "only place that information exists.\n\n" +
         "CHOOSING area_codes vs geo_type/geo_extent: for a specific area or short list (even a " +
         'single one), use area_codes=["E07000087"]. For every area of a given type (e.g. ' +
         '"every ltla in the South East"), use geo_type + geo_extent together: geo_type names ' +
         "the level to fetch, geo_extent is a parent area code that bounds it.\n\n" +
         'Set pivot="area" to get one row per area with one column per indicator (for ' +
         '"compare these areas across these indicators" questions) instead of the default ' +
-        "indicator-grouped shape — each cell is an ARRAY of observation rows, not a single " +
-        "value: usually length 1, but longer whenever the indicator is multivariate (one row " +
+        "indicator-grouped shape — each cell is `{ label, rows }`: `label` is that indicator's " +
+        "human-readable name (duplicated here so you don't have to cross-reference " +
+        "indicatorsMeta just to cite it), `rows` is an ARRAY of observation rows, not a single " +
+        "value — usually length 1, but longer whenever the indicator is multivariate (one row " +
         "per dimension combination, e.g. sex x age — check " +
         "indicatorsMeta[slug].isMultivariate) or time spans more than one period " +
         "(indicatorsMeta[slug].hasTimeseries) — narrow with `dimensions` and/or a single `time` " +
@@ -441,10 +463,13 @@ export function registerDataTools(server: McpServer): void {
         : undefined;
 
       if (pivot === "area") {
+        const labelBySlug = new Map(
+          Object.keys(dataBySlug).map((slug) => [slug, metaBySlug.get(slug)?.label]),
+        );
         return jsonResult({
           coverage,
           pivot: "area",
-          areas: pivotByArea(dataBySlug),
+          areas: pivotByArea(dataBySlug, labelBySlug),
           indicatorsMeta: Object.fromEntries(
             Object.keys(dataBySlug).map((slug) => [
               slug,
