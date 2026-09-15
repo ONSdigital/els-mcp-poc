@@ -90,12 +90,15 @@ include:
   (see CLAUDE.md's "Bugs caught by real usage"). Any future change to `pivotByArea` or
   `buildComparisonNote` needs this case re-run, not just the single-row cases above.
 - Not just data correctness — check the response is actually *usable* the way a calling model
-  will use it: ask an LLM client to report a figure from a `get_indicator_data` call (both
-  `pivot` values) and confirm it cites the indicator's `label` (not the raw slug) and a
-  source/date, without being told to. This caught a real gap once already (label buried in a
-  separate `indicatorsMeta` block under `pivot: "area"`, and no instruction anywhere telling a
-  model to use it) that no amount of checking the JSON shape by hand would have caught — the data
-  was correct, it just wasn't being read.
+  will use it: ask an LLM client to report a figure from **each** data-returning tool
+  (`get_indicator_data`, both `pivot` values, `rank_areas`, `rank_areas_by_change`,
+  `get_area_profile`) and confirm it cites the indicator's `label` (not the raw slug) and a
+  source/date, without being told to. This caught two real gaps already, not one: first a missing
+  instruction plus a structural cross-reference problem in `get_indicator_data` (label buried in a
+  separate `indicatorsMeta` block under `pivot: "area"`), then — checking the *other* data tools,
+  not just the one already fixed — `rank_areas`/`rank_areas_by_change` turned out to be missing
+  the `metadata` block entirely (only a bare `unit`/`label`). Check all four, every time; fixing
+  one tool's attribution doesn't mean the others got fixed along with it.
 - Confidence intervals need **two** cases, not one, since `confidenceIntervals` is a per-indicator
   property (the metadata endpoint already exposes it as a boolean — not something to infer by
   sampling rows): (a) an indicator with `confidenceIntervals: true`, confirming `lci_95`/`uci_95`

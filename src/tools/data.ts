@@ -176,6 +176,12 @@ function buildCoverage(opts: {
   };
 }
 
+/** The single source of provenance for every data-returning tool — get_indicator_data,
+ * get_area_profile, rank_areas, and rank_areas_by_change ALL build their response's indicator
+ * metadata through this one function, so there is exactly one place that decides what counts as
+ * "the metadata" rather than each tool inventing its own partial subset (rank_areas/
+ * rank_areas_by_change used to return only a bare `unit`/`label` pair — caught by real usage,
+ * same lesson as the other entries in CLAUDE.md's "Bugs caught by real usage"). */
 function indicatorMetadataBlock(meta: Indicator | undefined) {
   if (!meta) return undefined;
   return {
@@ -192,6 +198,12 @@ function indicatorMetadataBlock(meta: Indicator | undefined) {
     // surprise — see pivotByArea below for the bug this was added to stop recurring.
     isMultivariate: meta.isMultivariate ?? false,
     hasTimeseries: meta.hasTimeseries ?? false,
+    // Geographic coverage — which countries/levels/area-types this indicator actually has data
+    // for. Passed through as-is from the metadata endpoint rather than re-shaped, since
+    // `coverage.missing`'s own reasoning (e.g. "covers a country nationally but not at this
+    // area's level") is derived from exactly these fields — surfacing them here lets a model
+    // verify or explain a coverage gap itself, not just be told one exists.
+    geography: meta.geography,
   };
 }
 
@@ -326,12 +338,15 @@ export function registerDataTools(server: McpServer): void {
         "an indicator not covering a requested country) — always check it rather than assuming " +
         "an empty or partial result means something went wrong.\n\n" +
         "ATTRIBUTION: every response includes each indicator's human-readable `label`, `source`, " +
-        "and `updated` date (in `indicators[slug].metadata` by default, or in the top-level " +
-        "`indicatorsMeta[slug]` — plus inline per-cell under pivot='area', see below). Always " +
+        "`updated` date, and geographic coverage (`geography`: countries/levels/area-types it " +
+        "has data for). This lives in `indicators[slug].metadata` by default, or the top-level " +
+        "`indicatorsMeta[slug]`, plus inline per-cell under pivot='area' (see below). Always " +
         "refer to an indicator by its `label`, never its raw slug — say 'Population density: " +
         "1,555 people per km²', not 'population-density: 1555' — and cite the source/date when " +
         "reporting a figure, not just the bare value. This is not optional polish, it's the " +
-        "only place that information exists.\n\n" +
+        "only place that information exists. rank_areas, rank_areas_by_change, and " +
+        "get_area_profile all return this exact same `metadata` block — cite from it the same " +
+        "way there.\n\n" +
         "CHOOSING area_codes vs geo_type/geo_extent: for a specific area or short list (even a " +
         'single one), use area_codes=["E07000087"]. For every area of a given type (e.g. ' +
         '"every ltla in the South East"), use geo_type + geo_extent together: geo_type names ' +
@@ -505,8 +520,12 @@ export function registerDataTools(server: McpServer): void {
         "Rank areas by an indicator's value, e.g. \"which local authority has the highest " +
         'broadband coverage?" or "top 10 areas by unemployment rate in the South East". ' +
         "Returns BOTH ends of the sorted list (top and bottom top_n), not a single " +
-        "desc/asc-selected end — read the indicator's own unit/label and direction_note to pick " +
-        "the relevant end yourself, rather than guessing a sort direction up front.",
+        "desc/asc-selected end — read the indicator's own `metadata.unit`/`metadata.label` and " +
+        "direction_note to pick the relevant end yourself, rather than guessing a sort direction " +
+        "up front. `metadata` is the same block get_indicator_data returns (label, source, " +
+        "updated, geography coverage, etc.) — cite `metadata.label` (never the raw slug) and " +
+        "`metadata.source`/`updated` when reporting a ranked figure, the same as for any other " +
+        "data tool in this server.",
       inputSchema: {
         indicator_slug: z.string().describe("Indicator slug (from search_indicators)."),
         geo_type: z.string().describe('Area-type code to rank across, e.g. "ltla".'),
@@ -545,8 +564,7 @@ export function registerDataTools(server: McpServer): void {
       const sorted = [...rows].sort((a, b) => (b.value as number) - (a.value as number));
       const n = top_n ?? 10;
       return jsonResult({
-        unit: meta?.unit,
-        label: meta?.label,
+        metadata: indicatorMetadataBlock(meta),
         direction_note: "Sorted descending by value; `top` is highest, `bottom` is lowest.",
         total_ranked: sorted.length,
         top: sorted.slice(0, n),
@@ -562,7 +580,9 @@ export function registerDataTools(server: McpServer): void {
       description:
         'Rank areas by how much an indicator changed between two periods, e.g. "which areas ' +
         'grew fastest?" or "biggest fall in unemployment since 2015". Same top/bottom response ' +
-        "shape as rank_areas.",
+        "shape as rank_areas, including the same `metadata` block (label, source, updated, " +
+        "geography coverage, etc.) — cite `metadata.label` and `metadata.source`/`updated` when " +
+        "reporting a figure, not the raw slug or a bare number.",
       inputSchema: {
         indicator_slug: z.string().describe("Indicator slug (from search_indicators)."),
         geo_type: z.string().describe('Area-type code to rank across, e.g. "ltla".'),
@@ -614,8 +634,7 @@ export function registerDataTools(server: McpServer): void {
         .sort((a, b) => b.change - a.change);
       const n = top_n ?? 10;
       return jsonResult({
-        unit: meta?.unit,
-        label: meta?.label,
+        metadata: indicatorMetadataBlock(meta),
         start_time,
         end_time,
         direction_note:
@@ -634,7 +653,10 @@ export function registerDataTools(server: McpServer): void {
       description:
         'A curated default set of headline indicators for one area — answers "tell me about ' +
         'X" with a consistent, cheap response instead of guessing across 110+ indicators. Pass ' +
-        "an explicit indicators list to override the default set.",
+        "an explicit indicators list to override the default set. Each indicator's response " +
+        "includes the same `metadata` block get_indicator_data returns (label, source, updated, " +
+        "geography coverage, etc.) — cite `metadata.label` (never the raw slug) and " +
+        "`metadata.source`/`updated` when reporting a figure from this profile.",
       inputSchema: {
         area_code: z.string().describe("GSS code of the area to profile."),
         indicators: z

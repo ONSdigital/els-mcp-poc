@@ -246,27 +246,41 @@ that principle; see below).
   `{ rows, isEmpty }`) rather than leaving "check the array length" as a discipline every tool
   author has to remember. This is the same bug class already fixed once in the main ELS app's own
   frontend after this API change — worth not reintroducing it here by construction.
+- **The indicator `metadata` block (`label`/`source`/`unit`/`caveats`/`updated`/
+  `confidenceIntervals`/`isMultivariate`/`hasTimeseries`/`geography`) is built by ONE shared
+  function, used by every data-returning tool** — `get_indicator_data`, `rank_areas`,
+  `rank_areas_by_change`, and `get_area_profile` all return the exact same shape, not each
+  tool's own partial subset. `rank_areas`/`rank_areas_by_change` originally returned only a bare
+  `unit`/`label` pair, missing source/caveats/geography entirely — caught by real usage asking
+  why a ranked result couldn't be cited the same way a `get_indicator_data` one could. The general
+  principle this fixes: if a tool description tells a model to cite an indicator's `label` and
+  `source` (see ATTRIBUTION above), every data-returning tool has to actually provide those
+  fields in the same place, not just the one tool that happened to be built first.
 
 **`rank_areas(indicator, geo_type, geo_extent?, time?, dimensions?, top_n?)`** *(replaces
 `rank_areas_by_indicator`)* — returns **both ends** of the sorted list, not a `desc`/`asc`-selected
 top N and not the full list either (a full sort of ~360 LTLAs with provenance attached is a large
 payload for a tool called casually — the fix for the direction-guessing problem doesn't require
-that much data). Response shape: `{ top: [...], bottom: [...], total_ranked: N, unit,
-direction_note }`, `top_n` (default e.g. 10) controlling how many of each end come back. Removes
+that much data). Response shape: `{ metadata: {...}, top: [...], bottom: [...], total_ranked: N,
+direction_note }`, `top_n` (default e.g. 10) controlling how many of each end come back. `metadata`
+is the same shared block `get_indicator_data` returns (see above) — this replaced an earlier bare
+`unit`/`label` pair that real usage flagged as inconsistent with every other data tool. Removes
 the failure mode where the model has to correctly guess ranking direction before calling — it can
-read the indicator's own unit/label and `direction_note` in the same response and pick the
+read `metadata.unit`/`metadata.label` and `direction_note` in the same response and pick the
 relevant end itself, rather than the tool silently returning the wrong end on a bad guess.
 
 **`rank_areas_by_change(indicator, geo_type, geo_extent?, start_time, end_time, top_n?)`** *(new)* —
-same response shape as `rank_areas` (top/bottom, not a full list), ranked by change between two
-periods rather than a point value. This one earns being a separate tool from `rank_areas`: it's a
-genuinely different computation (a delta between two fetches), not an output-framing choice on the
-same fetch the way the two data-tool merges above were.
+same response shape as `rank_areas` (top/bottom, `metadata`, not a full list), ranked by change
+between two periods rather than a point value. This one earns being a separate tool from
+`rank_areas`: it's a genuinely different computation (a delta between two fetches), not an
+output-framing choice on the same fetch the way the two data-tool merges above were.
 
 **`get_area_profile(area_code, indicators?)`** *(new)* — a curated default set of headline
 indicators (population, median age, employment rate, and a small fixed list beyond that) for one
 area, with an optional override list. Gives "tell me about X" a consistent, cheap answer instead
-of ad hoc guessing across 110+ indicators each time.
+of ad hoc guessing across 110+ indicators each time. Response shape mirrors
+`get_indicator_data`'s indicator-grouped shape: each requested indicator gets its own
+`{ metadata: {...}, data: [...] }`.
 
 **`health()`** — keep as-is.
 

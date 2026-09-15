@@ -123,6 +123,18 @@ happening informally before step 5 was formally run):
   it — `coverage` only works because the description says so explicitly and the LLM being tested
   read that instruction and followed it; anything without an equivalent instruction (or without
   being placed at the actual point of use) got skipped, not out of the model's own error.
+- **`rank_areas` and `rank_areas_by_change` returned only a bare `unit`/`label` pair — no
+  `source`, `caveats`, `updated`, or `geography` — while `get_indicator_data` had all of it.**
+  Same root cause as the previous entry (metadata isn't uniformly available for a model to cite),
+  but a different mechanism: this time it wasn't a missing instruction, it was the metadata
+  genuinely not being *in* two of the four data tools' responses at all. Fixed by making
+  `indicatorMetadataBlock` (the function that builds this block) the single function every
+  data-returning tool goes through — `get_indicator_data`, `get_area_profile`, `rank_areas`, and
+  `rank_areas_by_change` now all return the exact same `metadata` shape, including a `geography`
+  field (countries/levels/area-types) that wasn't even in `get_indicator_data` before this fix.
+  **The general lesson, a third variant of the same theme**: consistency across tools needs a
+  shared function, not four tools each deciding independently what "the metadata" includes —
+  the first tool built correctly doesn't guarantee the next three copy it faithfully.
 
 ## The ELS API is documented elsewhere — don't re-derive its behaviour here
 
