@@ -269,12 +269,23 @@ this *before* assuming a 500 is the gotcha below; the two produce visually ident
   This project never imports `express` directly, but `@modelcontextprotocol/sdk` depends on it
   transitively, which was apparently enough to satisfy the detection once a file at exactly
   `src/server.ts` also existed (the old name of what's now `src/mcp-server.ts`) exporting
-  something function-shaped (`createServer`). **Fix: don't name a file `app`/`index`/`server` at
-  the project root or directly under `src/`**, regardless of whether it has anything to do with
-  Express — the collision is purely path-based. If a new top-level module under `src/` is ever
-  added, check it doesn't land on one of those three names before it causes the same failure.
-  Confirmed via [Vercel's own Express docs](https://vercel.com/docs/frameworks/backend/express)
-  ("Exporting the Express application" — the exact six trigger paths), not guessed.
+  something function-shaped (`createServer`). Confirmed via
+  [Vercel's own Express docs](https://vercel.com/docs/frameworks/backend/express) ("Exporting the
+  Express application" — the exact six trigger paths), not guessed.
+- **Renaming the file away from the trigger path (`src/server.ts` → `src/mcp-server.ts`) was
+  necessary but not sufficient.** The next deploy failed differently: `Error: No entrypoint found
+  in "/vercel/path0". Set package.json "main" to a server file, or add one of: app.js, ... server.ts,
+  ...` — with the accidental trigger file gone, Vercel had *nowhere* to fall back to, because the
+  project had already been detected (and the detection appears sticky at the project level, not
+  re-evaluated fresh from a clean slate on every deploy) as a zero-config Node/Express app rather
+  than an "Other" project using `api/` + `vercel.json`. **The actual fix: `"framework": null` in
+  `vercel.json`**, which explicitly overrides whatever Framework Preset the dashboard has settled
+  on and forces "Other" — `api/` served as Functions, nothing else auto-detected. This is a
+  committed, version-controlled fix (not a manual dashboard toggle you'd have to remember to
+  redo), confirmed via [Vercel's vercel.json reference](https://vercel.com/docs/project-configuration/vercel-json#framework)
+  ("To select 'Other' as the Framework Preset, use `null`."). **If a fresh Vercel project is ever
+  created for this repo, don't assume file-naming alone keeps it out of Express zero-config mode —
+  `"framework": null` is the actual guarantee.**
 - **This is exactly the gap local testing couldn't have caught.** Driving `api/mcp.ts`'s handler
   through a plain Node `http.createServer` (what the earlier verification pass did) proves the
   handler's own logic is correct, but never touches Vercel's actual build/framework-detection

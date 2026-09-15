@@ -69,11 +69,14 @@ produced it, before trusting a model that says "here's the download link" to a u
 
 ### 4. Re-confirm the Vercel deploy path after the platform-collision fix
 
-The first real Vercel deploy happened and 500'd — not from anything this document anticipated
-(the env var, the handler signature), but from Vercel's zero-config Express auto-detection
-grabbing `src/server.ts` as a bogus entrypoint (see CLAUDE.md's "Vercel platform gotchas" for the
-full story and the fix: the file is now `src/mcp-server.ts`). That's fixed, but **the fix itself
-hasn't been re-verified against an actual redeploy yet** — do that next: push, let it build, then
+The first two real Vercel deploys both failed, neither for anything this document originally
+anticipated (the env var, the handler signature) — both from Vercel's zero-config Express/Node
+detection colliding with this project's file layout, in two stages: first `src/server.ts` got
+grabbed as a bogus entrypoint (renamed to `src/mcp-server.ts`), then removing that file exposed
+that the project had already been detected as a zero-config Node/Express app at the project level
+and needed `"framework": null` in `vercel.json` to actually force "Other" (see CLAUDE.md's
+"Vercel platform gotchas" for the full story). Both are fixed, but **neither fix has been
+re-verified against an actual successful deploy yet** — do that next: push, let it build, then
 repeat the `initialize` + `tools/call health` check against the real
 `https://<deployed-url>/mcp` endpoint. Remember `ELS_API_BASE_URL` has to be set in the Vercel
 project's environment variables too, not just `.env` locally, or the deploy 500s at startup for an
