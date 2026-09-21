@@ -23,10 +23,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
   const mcpServer = createServer();
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  res.on("close", () => {
-    void transport.close();
-    void mcpServer.close();
-  });
 
   try {
     await mcpServer.connect(transport);
@@ -38,5 +34,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         .writeHead(500, { "content-type": "application/json" })
         .end(JSON.stringify({ error: "Internal server error" }));
     }
+  } finally {
+    // Tear down only after handleRequest settles, not on res "close" — that event can fire
+    // (e.g. a client-aborted/cancelled request) while handleRequest is still in flight, and
+    // closing the transport mid-request makes the SDK's own _closed check return a spurious
+    // 404 "Session not found" for a transport that never had a session to begin with.
+    void transport.close();
+    void mcpServer.close();
   }
 }

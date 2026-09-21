@@ -32,10 +32,6 @@ const httpServer = createHttpServer((req, res) => {
   void (async () => {
     const mcpServer = createServer();
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-    res.on("close", () => {
-      void transport.close();
-      void mcpServer.close();
-    });
     try {
       await mcpServer.connect(transport);
       await transport.handleRequest(req, res);
@@ -46,6 +42,11 @@ const httpServer = createHttpServer((req, res) => {
           .writeHead(500, { "content-type": "application/json" })
           .end(JSON.stringify({ error: "Internal server error" }));
       }
+    } finally {
+      // Tear down only after handleRequest settles, not on res "close" — see api/mcp.ts's
+      // identical comment for why that ordering matters (spurious 404 "Session not found").
+      void transport.close();
+      void mcpServer.close();
     }
   })();
 });
