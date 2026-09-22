@@ -21,6 +21,19 @@ LLM clients (Claude Desktop, etc.) as a set of tools — letting a chatbot answe
 than relying on training-data recall. TypeScript/Node, Streamable HTTP transport, deployed to
 Vercel.
 
+**Only Streamable HTTP is supported today** — no legacy HTTP+SSE (protocol 2024-11-05). A client
+that only speaks the old SSE transport (mandatory GET stream, session-id-in-query-param POSTs)
+cannot connect; this hasn't been needed so far since every real target client (VS Code's built-in
+MCP support, GitHub Copilot Chat, the official `@modelcontextprotocol/inspector`) speaks Streamable
+HTTP. If a client that genuinely requires legacy SSE shows up, the SDK ships a ready pattern for
+running both side by side (`examples/server/sseAndStreamableHttpCompatibleServer.js`) — a separate
+`/sse` (GET) + `/messages` (POST) pair alongside the existing `/mcp` endpoint, not a shared route
+(the two protocols aren't wire-compatible on the same URL). Worth knowing before reaching for it:
+that pattern is genuinely stateful — it holds per-session transport objects in server memory across
+requests — which doesn't survive Vercel routing a later request to a different warm instance
+without adding external shared state (e.g. Redis) to relay between instances. That's real added
+infrastructure, not a config flag, so only take this on if a real client actually needs it.
+
 ## Current state: TypeScript/Node server
 
 - `src/mcp-server.ts` exports `createServer()`, a **factory** (not a shared singleton) that builds one
@@ -312,33 +325,3 @@ this *before* assuming a 500 is the gotcha below; the two produce visually ident
   environment this was built in — see the deploy note above. This remains the single biggest
   reason three straight platform-collision bugs made it all the way to a live deploy before being
   caught, rather than being caught in one `vercel build` run locally.)
-- **`api/mcp.ts` and `src/dev-server.ts` used to tear down the transport from `res.on("close", ...)`,
-  registered *before* `await transport.handleRequest(req, res)` — this raced a client-aborted or
-  cancelled request against the SDK's own `_closed` check.** Found via a real VS Code/GitHub
-  Copilot client reporting `initialize` succeeding (tools discovered) but subsequent calls failing
-  with `404 Session not found` — misdiagnosed by that client as Vercel losing in-memory session
-  state across serverless instances. That diagnosis doesn't hold up: `sessionIdGenerator:
-  undefined` means `validateSession()` in the SDK is a complete no-op (confirmed by reading
-  `node_modules/@modelcontextprotocol/sdk`'s `webStandardStreamableHttp.js`, and live against the
-  Vercel deploy — five sequential `tools/call` requests each landed on a different `x-vercel-id`
-  instance with no session header sent at all, and none failed; a deliberately bogus
-  `Mcp-Session-Id` header is silently ignored too). The actual `404 Session not found` in that same
-  SDK file comes from an unrelated check at the top of `handleRequest` — `if (this._closed) return
-  ...404...` — and Node's `res` `"close"` event fires on *any* request teardown, including a
-  client-side abort/cancel, not just a clean finish. If that fired while `handleRequest` was still
-  in flight, `transport.close()` set `_closed` mid-request and the next check saw it, producing the
-  exact reported error from a server that never had a session to lose. Fixed by moving teardown
-  into a `finally` after `handleRequest` resolves instead of an event listener registered ahead of
-  it — safe because nothing here needs the transport alive past its one request (no event store, no
-  server-initiated notifications). **The general lesson**: an error string that sounds like a named
-  MCP concept ("session") doesn't mean the bug is in that concept — grep the actual code path that
-  emits the string before accepting a plausible-sounding diagnosis, including one another LLM
-  produced from its own client-side logs.
-- **The GET/DELETE `405` on both servers is intentional, not the bug, despite the above.** Checked
-  while investigating the previous entry: the SDK's own reference client (`client/streamableHttp.js`)
-  explicitly treats a `405` on the standalone GET SSE stream as "server doesn't offer one" and a
-  `405` on `DELETE` as "server doesn't support explicit termination" — both are documented as valid,
-  non-fatal responses, not something to change. Letting GET through to the transport instead would
-  make it open a real SSE stream with nothing to ever push through it (no event store, no
-  server-initiated notifications exist in this server) and hold a Vercel function invocation open
-  until `maxDuration` for zero benefit — worse than the 405, not a fix for it.
